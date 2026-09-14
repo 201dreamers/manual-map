@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { History, Menu, Pencil, Repeat, Settings, Undo2 } from 'lucide-react';
+import { Compass, History, Menu, Pencil, Repeat, Settings, Undo2 } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
 
@@ -25,6 +25,7 @@ export function MenuButton() {
   const isRouting = useSimulationStore((state) => state.isRouting);
   const isDrawArmed = useSimulationStore((state) => state.isDrawArmed);
   const setDrawArmed = useSimulationStore((state) => state.setDrawArmed);
+  const resetNorth = useSimulationStore((state) => state.resetNorth);
   const hasToken = useSimulationStore((state) => state.mapboxToken !== null);
 
   useEffect(() => {
@@ -95,6 +96,15 @@ export function MenuButton() {
             onClick={run(() => setDrawArmed(!isDrawArmed))}
           >
             <Pencil size={18} /> {isDrawArmed ? 'Cancel drawing' : 'Draw line'}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={ITEM_CLASS}
+            disabled={!hasToken}
+            onClick={run(resetNorth)}
+          >
+            <Compass size={18} /> Face north
           </button>
         </div>
       )}

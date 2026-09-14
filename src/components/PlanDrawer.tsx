@@ -5,7 +5,7 @@ import { SearchPanel } from './SearchPanel';
 import { GLASS_SURFACE } from './ui';
 
 /** Clears the floating control cluster so playback stays reachable (AC-203). */
-const BOTTOM_OFFSET = 'calc(12.5rem + env(safe-area-inset-bottom))';
+const BOTTOM_OFFSET = 'calc(9.5rem + env(safe-area-inset-bottom))';
 /** Clears the floating button row at the top of the map. */
 const TOP_OFFSET = 'calc(4.5rem + env(safe-area-inset-top))';
 

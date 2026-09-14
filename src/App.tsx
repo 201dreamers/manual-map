@@ -1,5 +1,4 @@
 import { MapPinned } from 'lucide-react';
-import { CompassButton } from './components/CompassButton';
 import { ControlPanel } from './components/ControlPanel';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
@@ -41,7 +40,6 @@ function App() {
         </div>
 
         <PlanDrawer />
-        <CompassButton />
         <RecenterButton />
         <ControlPanel />
       </main>

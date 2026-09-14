@@ -45,12 +45,12 @@ gitignored - no token ever belongs in a commit.
 | Action | How |
 |---|---|
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
-| Undo / reverse | In the top-left menu, together with Settings, History and Draw. |
+| Undo / reverse | In the top-left menu, together with Settings, History, Draw and Face north. |
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
-| Step | Floating up / down buttons at the bottom right of the map. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
+| Step | Floating back / forward buttons at the bottom right of the map. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
 | Settings | Token plus the forward and backward step distances. |
-| Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button. |
+| Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button; "Face north" in the menu rotates the map back to north-up. |
 | History | Every calculated route is saved to `localStorage` and can be reloaded, deleted, or cleared from the side drawer. |
 
 Playback is foreground-only: hiding the tab pauses the simulation.

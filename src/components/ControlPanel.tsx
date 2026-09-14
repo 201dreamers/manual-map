@@ -1,4 +1,4 @@
-import { ChevronsDown, ChevronsUp, Pause, Play, SkipBack } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Pause, Play, SkipBack } from 'lucide-react';
 import { displaySpeed, formatDistance, speedLabel } from '../lib/format';
 import { MAX_SPEED_KMH, useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
@@ -50,18 +50,7 @@ export function ControlPanel() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            className={STEP_BUTTON_CLASS}
-            onClick={() => step(1)}
-            disabled={!hasRoute}
-            aria-label={`Step forward ${forwardLabel}`}
-          >
-            <ChevronsUp size={20} />
-            <span className="font-mono text-[11px] leading-none">{forwardLabel}</span>
-          </button>
-
+        <div className="flex items-center gap-2">
           <button
             type="button"
             className={STEP_BUTTON_CLASS}
@@ -69,8 +58,19 @@ export function ControlPanel() {
             disabled={!hasRoute}
             aria-label={`Step back ${backLabel}`}
           >
-            <ChevronsDown size={20} />
+            <ChevronsLeft size={20} />
             <span className="font-mono text-[11px] leading-none">{backLabel}</span>
+          </button>
+
+          <button
+            type="button"
+            className={STEP_BUTTON_CLASS}
+            onClick={() => step(1)}
+            disabled={!hasRoute}
+            aria-label={`Step forward ${forwardLabel}`}
+          >
+            <ChevronsRight size={20} />
+            <span className="font-mono text-[11px] leading-none">{forwardLabel}</span>
           </button>
         </div>
       </div>
