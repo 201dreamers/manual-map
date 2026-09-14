@@ -1,13 +1,11 @@
 import { MapPinned } from 'lucide-react';
 import { CompassButton } from './components/CompassButton';
 import { ControlPanel } from './components/ControlPanel';
-import { DrawButton } from './components/DrawButton';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
 import { PlanDrawer } from './components/PlanDrawer';
 import { RecenterButton } from './components/RecenterButton';
 import { SettingsModal } from './components/SettingsModal';
-import { TelemetryPanel } from './components/TelemetryPanel';
 import { ToastStack } from './components/ToastStack';
 import { TopBar } from './components/TopBar';
 import { useAnimationLoop } from './lib/useAnimationLoop';
@@ -34,17 +32,15 @@ function App() {
           </div>
         )}
 
-        {/* Top overlay stack: actions, status, then telemetry. */}
+        {/* Top overlay stack: the action row, then the status line under it. */}
         <div
-          className="pointer-events-none absolute inset-x-3 top-0 flex flex-col items-start gap-2"
+          className="pointer-events-none absolute inset-x-3 top-0 flex flex-col gap-2"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
           <TopBar />
-          <TelemetryPanel />
         </div>
 
         <PlanDrawer />
-        <DrawButton />
         <CompassButton />
         <RecenterButton />
         <ControlPanel />

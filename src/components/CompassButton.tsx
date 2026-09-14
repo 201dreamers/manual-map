@@ -2,8 +2,8 @@ import { Compass } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_SURFACE } from './ui';
 
-/** Sits directly above the pen button in the left-hand stack. */
-const BOTTOM_OFFSET = 'calc(13rem + env(safe-area-inset-bottom))';
+/** Clears the playback cluster stacked below it. */
+const BOTTOM_OFFSET = 'calc(9.5rem + env(safe-area-inset-bottom))';
 
 /** Rotates the map back to north-up, leaving the camera where it is. */
 export function CompassButton() {

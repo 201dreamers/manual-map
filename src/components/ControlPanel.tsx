@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, Pause, Play, SkipBack } from 'lucide-react';
+import { ChevronsDown, ChevronsUp, Pause, Play, SkipBack } from 'lucide-react';
 import { displaySpeed, formatDistance, speedLabel } from '../lib/format';
 import { MAX_SPEED_KMH, useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
@@ -26,18 +26,8 @@ export function ControlPanel() {
       className="pointer-events-none absolute inset-x-3 bottom-0 flex flex-col gap-2.5"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          className={STEP_BUTTON_CLASS}
-          onClick={() => step(-1)}
-          disabled={!hasRoute}
-          aria-label={`Step back ${backLabel}`}
-        >
-          <ChevronsLeft size={20} />
-          <span className="font-mono text-[11px] leading-none">{backLabel}</span>
-        </button>
-
+      <div className="flex items-end justify-between gap-2">
+        {/* Playback on the left, stepping on the right, so neither thumb crosses the map. */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -60,16 +50,29 @@ export function ControlPanel() {
           </button>
         </div>
 
-        <button
-          type="button"
-          className={STEP_BUTTON_CLASS}
-          onClick={() => step(1)}
-          disabled={!hasRoute}
-          aria-label={`Step forward ${forwardLabel}`}
-        >
-          <ChevronsRight size={20} />
-          <span className="font-mono text-[11px] leading-none">{forwardLabel}</span>
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className={STEP_BUTTON_CLASS}
+            onClick={() => step(1)}
+            disabled={!hasRoute}
+            aria-label={`Step forward ${forwardLabel}`}
+          >
+            <ChevronsUp size={20} />
+            <span className="font-mono text-[11px] leading-none">{forwardLabel}</span>
+          </button>
+
+          <button
+            type="button"
+            className={STEP_BUTTON_CLASS}
+            onClick={() => step(-1)}
+            disabled={!hasRoute}
+            aria-label={`Step back ${backLabel}`}
+          >
+            <ChevronsDown size={20} />
+            <span className="font-mono text-[11px] leading-none">{backLabel}</span>
+          </button>
+        </div>
       </div>
 
       <div

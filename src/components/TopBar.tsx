@@ -1,19 +1,17 @@
-import { History, ListOrdered, Loader2, Repeat, Settings, Undo2 } from 'lucide-react';
+import { ListOrdered, Loader2 } from 'lucide-react';
+import { MenuButton } from './MenuButton';
+import { TelemetryPanel } from './TelemetryPanel';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
 
 const BUTTON_CLASS = `${GLASS_BUTTON} min-h-[48px] min-w-[48px] gap-1 px-2.5`;
 
 /**
- * Floating action buttons over the map. The status line appears only when it has
- * something to say, so it does not permanently occupy a strip of the map.
+ * Top overlay row: the menu on the left, telemetry in the middle and the stop list
+ * on the right. The status line appears only when it has something to say, so it
+ * does not permanently occupy a strip of the map.
  */
 export function TopBar() {
-  const openHistory = useSimulationStore((state) => state.openHistory);
-  const openSettings = useSimulationStore((state) => state.openSettings);
-  const reverseRoute = useSimulationStore((state) => state.reverseRoute);
-  const undo = useSimulationStore((state) => state.undo);
-  const canUndo = useSimulationStore((state) => state.undoStack.length > 0);
   const openPlan = useSimulationStore((state) => state.openPlan);
   const isPlanOpen = useSimulationStore((state) => state.isPlanOpen);
   const pointCount = useSimulationStore((state) => state.routePoints.length);
@@ -30,35 +28,14 @@ export function TopBar() {
 
   return (
     <>
-      <header className="flex w-full items-center gap-2">
-        <button
-          type="button"
-          className={BUTTON_CLASS}
-          onClick={() => openHistory(true)}
-          aria-label="Route history"
-        >
-          <History size={20} />
-        </button>
-        <button
-          type="button"
-          className={BUTTON_CLASS}
-          onClick={() => openSettings(true)}
-          aria-label="Token and settings"
-        >
-          <Settings size={20} />
-        </button>
+      <header className="flex w-full items-start justify-between gap-2">
+        <MenuButton />
 
-        <div className="flex-1" />
+        {/* Centred telemetry; min-w-0 lets it shrink instead of pushing the buttons out. */}
+        <div className="flex min-w-0 flex-1 justify-center">
+          <TelemetryPanel />
+        </div>
 
-        <button
-          type="button"
-          className={BUTTON_CLASS}
-          onClick={undo}
-          disabled={!canUndo || isRouting}
-          aria-label="Undo last route change"
-        >
-          <Undo2 size={20} />
-        </button>
         <button
           type="button"
           className={`${BUTTON_CLASS} ${isPlanOpen ? 'text-sky-300 ring-sky-500' : ''}`}
@@ -69,20 +46,11 @@ export function TopBar() {
           <ListOrdered size={20} />
           {pointCount > 0 && <span className="text-xs font-medium">{pointCount}</span>}
         </button>
-        <button
-          type="button"
-          className={BUTTON_CLASS}
-          onClick={() => void reverseRoute()}
-          disabled={pointCount < 2 || isRouting}
-          aria-label="Reverse route"
-        >
-          <Repeat size={20} />
-        </button>
       </header>
 
       {status && (
         <p
-          className={`pointer-events-none flex w-fit items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs ${
+          className={`pointer-events-none mx-auto flex w-fit items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs ${
             isRouting ? 'text-sky-300' : 'text-slate-400'
           } ${GLASS_SURFACE}`}
         >
