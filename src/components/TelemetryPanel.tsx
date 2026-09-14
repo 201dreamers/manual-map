@@ -22,7 +22,7 @@ export function TelemetryPanel() {
   );
 
   return (
-    <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start gap-2">
+    <div className="flex flex-wrap items-start gap-2">
       <div className={`flex items-center gap-4 rounded-2xl px-3 py-2 ${GLASS_SURFACE}`}>
         <Metric
           label="Distance"

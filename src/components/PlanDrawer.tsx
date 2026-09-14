@@ -6,6 +6,8 @@ import { GLASS_SURFACE } from './ui';
 
 /** Clears the floating control cluster so playback stays reachable (AC-203). */
 const BOTTOM_OFFSET = 'calc(9.5rem + env(safe-area-inset-bottom))';
+/** Clears the floating button row at the top of the map. */
+const TOP_OFFSET = 'calc(4.5rem + env(safe-area-inset-top))';
 
 const ICON_BUTTON =
   'flex min-h-[44px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 ' +
@@ -39,8 +41,8 @@ export function PlanDrawer() {
 
   return (
     <aside
-      style={{ bottom: BOTTOM_OFFSET }}
-      className={`pointer-events-auto absolute right-3 top-3 flex w-[min(20rem,78vw)] flex-col overflow-hidden rounded-2xl ${GLASS_SURFACE}`}
+      style={{ bottom: BOTTOM_OFFSET, top: TOP_OFFSET }}
+      className={`pointer-events-auto absolute right-3 flex w-[min(20rem,78vw)] flex-col overflow-hidden rounded-2xl ${GLASS_SURFACE}`}
     >
       <header className="flex items-center justify-between border-b border-slate-700 px-3 py-2">
         <h2 className="text-sm font-medium text-slate-100">

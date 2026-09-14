@@ -100,8 +100,8 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 
 ```
 +---------------------------------------------------------+
-| [ Route History ]   [ Token / Settings ]   [ Reverse ]  |  <- Top Action Bar
-+---------------------------------------------------------+
+| (Hist) (Set)              (Undo) (Stops 3) (Rev)        |  <- Floating action buttons
+| [ Tap the map to set a start point ]                    |  <- Status pill (only when useful)
 | [ 15.2/45.0 km | ETA 29 min ]                           |  <- Floating telemetry card
 |                                                         |
 |                                                         |
@@ -118,7 +118,8 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 ```
 
 * **Touch Ergonomics:** All buttons have a minimum hit target of `min-h-[44px]` with clear tactile/visual pressed states for mobile Safari.
-* **Safe Area Support:** Top bar and bottom controls account for iOS notch (`env(safe-area-inset-top)`) and home indicator (`env(safe-area-inset-bottom)`).
+* **Safe Area Support:** The floating top stack and bottom controls account for the iOS notch (`env(safe-area-inset-top)`) and home indicator (`env(safe-area-inset-bottom)`).
+* **Full-bleed Map:** No control occupies a solid strip of the viewport. Actions, status, telemetry and playback controls all float above the map on the shared translucent surface.
 
 ---
 

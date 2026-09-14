@@ -22,11 +22,9 @@ function App() {
   useWakeLock(isPlaying);
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <TopBar />
-
-      {/* The map takes the whole remaining viewport; telemetry and controls float on top of it. */}
-      <main className="relative flex-1 overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-slate-950 text-slate-100">
+      {/* The map fills the viewport; every control floats above it. */}
+      <main className="relative h-full w-full overflow-hidden">
         {mapboxToken ? (
           <MapView />
         ) : (
@@ -36,7 +34,15 @@ function App() {
           </div>
         )}
 
-        <TelemetryPanel />
+        {/* Top overlay stack: actions, status, then telemetry. */}
+        <div
+          className="pointer-events-none absolute inset-x-3 top-0 flex flex-col items-start gap-2"
+          style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+        >
+          <TopBar />
+          <TelemetryPanel />
+        </div>
+
         <PlanDrawer />
         <DrawButton />
         <CompassButton />
