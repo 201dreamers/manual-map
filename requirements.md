@@ -78,7 +78,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 * **FR-4.3 Manual Drag Override:** If the user manually drags or zooms the map during playback, camera auto-centering and rotation temporarily disable. A floating "Recenter" button appears to allow the user to re-enable camera tracking.
 
 ### 4.5 Telemetry & History Management
-* **FR-5.1 Live Dashboard Display:**
+* **FR-5.1 Live Dashboard Display:** Shown as small independent floating cards over the map (speed; remaining + ETA; distance + position):
   * Current Speed (km/h or mph)
   * Distance Covered vs. Total Route Distance
   * Distance Remaining
@@ -102,8 +102,8 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 +---------------------------------------------------------+
 | [ Route History ]   [ Token / Settings ]   [ Reverse ]  |  <- Top Action Bar
 +---------------------------------------------------------+
-| SPEED: 60 km/h | 15.2/45.0 km | ETA: 29 min             |  <- Floating Telemetry Card
-| REMAINING: 29.8 km | POS: 50.4500, 30.5200              |
+| [ 60 km/h ] [ REM 29.8 km | ETA 29 min ]                |  <- Floating telemetry cards
+| [ 15.2/45.0 km | 50.4500, 30.5200 ]                     |     (wrap independently)
 |                                                         |
 |                                                         |
 |                     MAP VIEWPORT                        |  <- Full-bleed Mapbox Vector Map

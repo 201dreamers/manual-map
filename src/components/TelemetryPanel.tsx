@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   displaySpeed,
   formatCoordinate,
@@ -8,6 +9,12 @@ import {
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_SURFACE } from './ui';
 
+function Card({ children }: { children: ReactNode }) {
+  return (
+    <div className={`flex items-center gap-3 rounded-2xl px-3 py-2 ${GLASS_SURFACE}`}>{children}</div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -17,7 +24,10 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Floating telemetry readout; sits over the map so the map keeps the full viewport. */
+/**
+ * Telemetry is split into small independent cards that wrap to the next line on
+ * narrow screens, leaving as much of the map visible between them as possible.
+ */
 export function TelemetryPanel() {
   const telemetry = useSimulationStore((state) => state.displayTelemetry);
   const unit = useSimulationStore((state) => state.config.speedUnit);
@@ -26,22 +36,28 @@ export function TelemetryPanel() {
   );
 
   return (
-    <section
-      className={`pointer-events-none absolute inset-x-3 top-3 grid grid-cols-3 gap-x-3 gap-y-2 rounded-2xl px-3 py-2.5 ${GLASS_SURFACE}`}
-    >
-      <Metric
-        label="Speed"
-        value={`${Math.round(displaySpeed(telemetry.currentSpeedKmh, unit))} ${speedLabel(unit)}`}
-      />
-      <Metric
-        label="Distance"
-        value={`${formatDistanceKm(telemetry.currentDistanceMeters)}/${formatDistanceKm(totalDistanceMeters)}`}
-      />
-      <Metric label="ETA" value={formatEta(telemetry.etaSeconds)} />
-      <Metric label="Remaining" value={`${formatDistanceKm(telemetry.remainingDistanceMeters)} km`} />
-      <div className="col-span-2">
+    <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start gap-2">
+      <Card>
+        <p className="font-mono text-2xl leading-none text-slate-100">
+          {Math.round(displaySpeed(telemetry.currentSpeedKmh, unit))}
+        </p>
+        <p className="text-[10px] uppercase leading-none tracking-wide text-slate-500">
+          {speedLabel(unit)}
+        </p>
+      </Card>
+
+      <Card>
+        <Metric label="Remaining" value={`${formatDistanceKm(telemetry.remainingDistanceMeters)} km`} />
+        <Metric label="ETA" value={formatEta(telemetry.etaSeconds)} />
+      </Card>
+
+      <Card>
+        <Metric
+          label="Distance"
+          value={`${formatDistanceKm(telemetry.currentDistanceMeters)}/${formatDistanceKm(totalDistanceMeters)} km`}
+        />
         <Metric label="Position" value={formatCoordinate(telemetry.currentCoordinate)} />
-      </div>
-    </section>
+      </Card>
+    </div>
   );
 }
