@@ -1,4 +1,4 @@
-import { History, Loader2, Repeat, RotateCcw, Settings, Undo2 } from 'lucide-react';
+import { History, ListOrdered, Loader2, Repeat, Settings, Undo2 } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 
 const BUTTON_CLASS =
@@ -11,7 +11,8 @@ export function TopBar() {
   const reverseRoute = useSimulationStore((state) => state.reverseRoute);
   const undo = useSimulationStore((state) => state.undo);
   const canUndo = useSimulationStore((state) => state.undoStack.length > 0);
-  const clearRoute = useSimulationStore((state) => state.clearRoute);
+  const openPlan = useSimulationStore((state) => state.openPlan);
+  const isPlanOpen = useSimulationStore((state) => state.isPlanOpen);
   const pointCount = useSimulationStore((state) => state.routePoints.length);
   const isRouting = useSimulationStore((state) => state.isRouting);
 
@@ -48,12 +49,13 @@ export function TopBar() {
       </button>
       <button
         type="button"
-        className={BUTTON_CLASS}
-        onClick={clearRoute}
-        disabled={pointCount === 0}
-        aria-label="Clear route"
+        className={`${BUTTON_CLASS} ${isPlanOpen ? 'ring-sky-500 text-sky-300' : ''}`}
+        onClick={() => openPlan(!isPlanOpen)}
+        aria-label={isPlanOpen ? 'Hide stops' : 'Show stops'}
+        aria-pressed={isPlanOpen}
       >
-        <RotateCcw size={20} />
+        <ListOrdered size={20} />
+        {pointCount > 0 && <span className="text-xs font-medium">{pointCount}</span>}
       </button>
       <button
         type="button"

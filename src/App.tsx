@@ -2,6 +2,7 @@ import { MapPinned } from 'lucide-react';
 import { ControlPanel } from './components/ControlPanel';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
+import { PlanDrawer } from './components/PlanDrawer';
 import { RecenterButton } from './components/RecenterButton';
 import { SettingsModal } from './components/SettingsModal';
 import { TelemetryPanel } from './components/TelemetryPanel';
@@ -34,6 +35,7 @@ function App() {
         )}
 
         <TelemetryPanel />
+        <PlanDrawer />
         <RecenterButton />
         <ControlPanel />
       </main>

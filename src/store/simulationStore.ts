@@ -30,6 +30,9 @@ export type StepDirection = 1 | -1;
 /** How many route-changing operations can be reverted. */
 export const UNDO_DEPTH = 10;
 
+/** Drawer edits coalesce for this long so a burst of reorders costs one request. */
+export const RECALC_DEBOUNCE_MS = 400;
+
 /** A revertible snapshot of everything a route-changing operation touches. */
 interface RouteSnapshot {
   routePoints: RoutePoint[];
@@ -60,6 +63,7 @@ export interface SimulationState {
   mapboxToken: string | null;
   isSettingsOpen: boolean;
   isHistoryOpen: boolean;
+  isPlanOpen: boolean;
 
   routePoints: RoutePoint[];
   geometry: RouteGeometry | null;
@@ -81,8 +85,11 @@ export interface SimulationState {
   removeToken: () => void;
   openSettings: (open: boolean) => void;
   openHistory: (open: boolean) => void;
+  openPlan: (open: boolean) => void;
 
   addRoutePoint: (coordinate: CoordinateTuple) => Promise<void>;
+  moveRoutePoint: (id: string, direction: StepDirection) => void;
+  removeRoutePoint: (id: string) => void;
   undo: () => void;
   clearRoute: () => void;
   reverseRoute: () => Promise<void>;
@@ -151,8 +158,19 @@ function buildRouteTitle(points: RoutePoint[]): string {
 /** In-flight Directions request, aborted whenever a newer one supersedes it. */
 let pendingRouteRequest: AbortController | null = null;
 
+/** Coalesces a burst of drawer edits into a single recalculation. */
+let recalcTimer: ReturnType<typeof setTimeout> | null = null;
+/** State from before the first edit of the current burst, for undo and rollback. */
+let pendingEdit: { previous: RoutePoint[]; snapshot: RouteSnapshot } | null = null;
+
 export const useSimulationStore = create<SimulationState>()(
   subscribeWithSelector((set, get) => {
+    const cancelPendingEdit = () => {
+      if (recalcTimer) clearTimeout(recalcTimer);
+      recalcTimer = null;
+      pendingEdit = null;
+    };
+
     const captureSnapshot = (): RouteSnapshot => {
       const { routePoints, geometry, activeRoute, telemetry } = get();
       return {
@@ -172,8 +190,12 @@ export const useSimulationStore = create<SimulationState>()(
      * Recalculates road geometry for the given tap points. On failure the invalid
      * segment is dropped (FR-1.3) and the previous state is restored.
      */
-    const recalculateRoute = async (points: RoutePoint[], previous: RoutePoint[]) => {
-      const snapshot = captureSnapshot();
+    const recalculateRoute = async (
+      points: RoutePoint[],
+      previous: RoutePoint[],
+      presetSnapshot?: RouteSnapshot,
+    ) => {
+      const snapshot = presetSnapshot ?? captureSnapshot();
       const token = get().mapboxToken;
       if (!token) {
         set({ routePoints: previous });
@@ -244,6 +266,28 @@ export const useSimulationStore = create<SimulationState>()(
       }
     };
 
+    /**
+     * Applies a stop-list edit immediately so the drawer stays responsive, then
+     * recalculates once the user stops editing.
+     */
+    const scheduleRecalculate = (points: RoutePoint[]) => {
+      if (!pendingEdit) {
+        pendingEdit = { previous: get().routePoints, snapshot: captureSnapshot() };
+      }
+
+      // Reordering mid-drive would leave the marker at a meaningless offset.
+      set({ routePoints: points, config: { ...get().config, isPlaying: false } });
+
+      if (recalcTimer) clearTimeout(recalcTimer);
+      recalcTimer = setTimeout(() => {
+        recalcTimer = null;
+        const edit = pendingEdit;
+        pendingEdit = null;
+        if (!edit) return;
+        void recalculateRoute(get().routePoints, edit.previous, edit.snapshot);
+      }, RECALC_DEBOUNCE_MS);
+    };
+
     /** D-4: history is written on commit (the first Play press), not on every edit. */
     const commitActiveRoute = () => {
       const activeRoute = get().activeRoute;
@@ -273,6 +317,7 @@ export const useSimulationStore = create<SimulationState>()(
       mapboxToken: resolveMapboxToken(),
       isSettingsOpen: false,
       isHistoryOpen: false,
+      isPlanOpen: false,
 
       routePoints: [],
       geometry: null,
@@ -300,6 +345,8 @@ export const useSimulationStore = create<SimulationState>()(
       openSettings: (open) => set({ isSettingsOpen: open }),
       openHistory: (open) => set({ isHistoryOpen: open }),
 
+      openPlan: (open) => set({ isPlanOpen: open }),
+
       addRoutePoint: async (coordinate) => {
         const previous = get().routePoints;
         if (previous.length >= MAX_ROUTE_POINTS) {
@@ -314,6 +361,7 @@ export const useSimulationStore = create<SimulationState>()(
         const stack = get().undoStack;
         if (stack.length === 0) return;
 
+        cancelPendingEdit();
         pendingRouteRequest?.abort();
         pendingRouteRequest = null;
 
@@ -335,8 +383,28 @@ export const useSimulationStore = create<SimulationState>()(
         });
       },
 
+      moveRoutePoint: (id, direction) => {
+        const points = get().routePoints;
+        const index = points.findIndex((point) => point.id === id);
+        if (index === -1) return;
+
+        const target = index + direction;
+        if (target < 0 || target >= points.length) return;
+
+        const next = [...points];
+        [next[index], next[target]] = [next[target], next[index]];
+        scheduleRecalculate(next);
+      },
+
+      removeRoutePoint: (id) => {
+        const points = get().routePoints;
+        if (!points.some((point) => point.id === id)) return;
+        scheduleRecalculate(points.filter((point) => point.id !== id));
+      },
+
       clearRoute: () => {
         const snapshot = captureSnapshot();
+        cancelPendingEdit();
         pendingRouteRequest?.abort();
         pendingRouteRequest = null;
         const telemetry = { ...EMPTY_TELEMETRY, currentSpeedKmh: get().config.speedKmh };
