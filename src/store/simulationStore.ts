@@ -37,8 +37,8 @@ const EMPTY_TELEMETRY: TelemetryState = {
 };
 
 const DEFAULT_CONFIG: SimulationConfig = {
-  stepForwardMeters: 500,
-  stepBackMeters: 500,
+  stepForwardMeters: 250,
+  stepBackMeters: 125,
   speedKmh: 60,
   speedUnit: 'kmh',
   isPlaying: false,

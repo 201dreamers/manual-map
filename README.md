@@ -15,6 +15,9 @@ Built against [requirements.md](requirements.md) (V1 scope).
 - Turf.js (`length`, `along`, `bearing`, `simplify`) for route math
 - Web Wake Lock API to keep the screen awake during playback
 
+The map fills the whole viewport; telemetry, step, playback and speed controls all
+float over it on a shared translucent surface.
+
 ## Getting started
 
 ```bash
@@ -42,8 +45,8 @@ gitignored - no token ever belongs in a commit.
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
 | Undo / clear | Undo and clear buttons in the top bar. |
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
-| Step | Floating `-` / `+` buttons over the map. Forward and backward distances are configured independently in Settings (both default 500 m) and are clamped to both route ends. |
-| Play | Moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
+| Step | Floating `-` / `+` buttons over the map. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
+| Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
 | Settings | Token plus the forward and backward step distances. |
 | Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button. |
 | History | Every calculated route is saved to `localStorage` and can be reloaded, deleted, or cleared from the side drawer. |

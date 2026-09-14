@@ -4,7 +4,6 @@ import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
 import { RecenterButton } from './components/RecenterButton';
 import { SettingsModal } from './components/SettingsModal';
-import { StepButtons } from './components/StepButtons';
 import { TelemetryPanel } from './components/TelemetryPanel';
 import { ToastStack } from './components/ToastStack';
 import { TopBar } from './components/TopBar';
@@ -23,6 +22,7 @@ function App() {
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-slate-950 text-slate-100">
       <TopBar />
 
+      {/* The map takes the whole remaining viewport; telemetry and controls float on top of it. */}
       <main className="relative flex-1 overflow-hidden">
         {mapboxToken ? (
           <MapView />
@@ -32,12 +32,11 @@ function App() {
             <p className="text-sm">Add a Mapbox public token to load the map.</p>
           </div>
         )}
-        <StepButtons />
-        <RecenterButton />
-      </main>
 
-      <TelemetryPanel />
-      <ControlPanel />
+        <TelemetryPanel />
+        <RecenterButton />
+        <ControlPanel />
+      </main>
 
       <HistoryDrawer />
       <SettingsModal />

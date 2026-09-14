@@ -8,7 +8,7 @@ import {
   type StepDirection,
 } from '../store/simulationStore';
 
-const STEP_PRESETS_METERS = [50, 100, 500, 1000];
+const STEP_PRESETS_METERS = [125, 250, 500, 1000];
 
 function StepDistanceField({
   direction,

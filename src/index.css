@@ -19,3 +19,8 @@ body,
   width: 100%;
   height: 100%;
 }
+
+/* Keep the Mapbox logo and attribution clear of the floating control cluster. */
+.mapboxgl-ctrl-bottom-left {
+  bottom: calc(8.5rem + env(safe-area-inset-bottom));
+}

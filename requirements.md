@@ -61,7 +61,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 
 ### 4.2 Step Controls & Boundary Rules
 * **FR-2.1 Step Controls:** UI buttons for `- Step` and `+ Step`.
-* **FR-2.2 Configurable Step Distance:** Forward and backward step distances are configured independently, each defaulting to 500 meters. Both are edited in the Settings modal (e.g., 50m, 100m, 1000m).
+* **FR-2.2 Configurable Step Distance:** Forward and backward step distances are configured independently (defaults: 250 m forward, 125 m backward). Both are edited in the Settings modal (e.g., 125m, 250m, 500m, 1000m).
 * **FR-2.3 Polyline Interpolation:** Positional jumps snap to precise points along the road path geometry using Turf.js spatial interpolation math (`turf.along`).
 * **FR-2.4 Upper Boundary Clamp:** If `+ Step` exceeds total route length, the marker clamps strictly to 100% (route end) and active playback pauses.
 * **FR-2.5 Lower Boundary Clamp:** If `- Step` drops below 0 meters, the marker clamps strictly to 0m (route start).
@@ -102,20 +102,19 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 +---------------------------------------------------------+
 | [ Route History ]   [ Token / Settings ]   [ Reverse ]  |  <- Top Action Bar
 +---------------------------------------------------------+
+| SPEED: 60 km/h | 15.2/45.0 km | ETA: 29 min             |  <- Floating Telemetry Card
+| REMAINING: 29.8 km | POS: 50.4500, 30.5200              |
 |                                                         |
 |                                                         |
-|                     MAP VIEWPORT                        |  <- Mapbox Vector Map (Heading-Up)
+|                     MAP VIEWPORT                        |  <- Full-bleed Mapbox Vector Map
 |                   (Always Rotating)                     |
 |                                                         |
 |                          ( ^ )                          |  <- Fixed Vehicle Marker (Points UP)
 |                                                         |
-|  [ -500m ]        [ Recenter Camera ]        [ +500m ]  |  <- Floating step buttons; Recenter appears only after manual pan
-+---------------------------------------------------------+
-| SPEED: 60 km/h | 15.2 / 45.0 km                         |  <- Telemetry Header
-| ETA: 29 min    | POS: 50.4500, 30.5200                  |
-+---------------------------------------------------------+
-|  [ |< ]        [ PLAY / PAUSE ]              [ mph ]    |  <- Playback Controls
-|  Speed: [============|--------------------] 60 km/h     |  <- Realtime Slider (0-180 km/h)
+|                 [ Recenter Camera ]                     |  <- Appears only after manual pan
+|                                                         |
+|  [ -125m ]     [ |< ] ( PLAY )              [ +250m ]   |  <- Floating step & playback controls
+|  [ ==========|---------------- ]   60  [ km/h ]         |  <- Floating speed slider (0-180 km/h)
 +---------------------------------------------------------+
 ```
 
@@ -168,8 +167,8 @@ export interface TelemetryState {
 }
 
 export interface SimulationConfig {
-  stepForwardMeters: number; // default 500
-  stepBackMeters: number; // default 500
+  stepForwardMeters: number; // default 250
+  stepBackMeters: number; // default 125
   speedKmh: number; // range 0 - 180
   speedUnit: 'kmh' | 'mph';
   isPlaying: boolean;
