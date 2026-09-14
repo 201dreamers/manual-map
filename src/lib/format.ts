@@ -1,4 +1,4 @@
-import type { CoordinateTuple, SimulationConfig } from '../types/domain';
+import type { SimulationConfig } from '../types/domain';
 
 const MPH_PER_KMH = 0.621371;
 
@@ -39,11 +39,6 @@ export function formatEta(seconds: number): string {
   return minutes === 0 ? `${hours} h` : `${hours} h ${minutes} min`;
 }
 
-export function formatCoordinate(coordinate: CoordinateTuple | null): string {
-  if (!coordinate) return '--.----, --.----';
-  const [lng, lat] = coordinate;
-  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-}
 
 export function formatTimestamp(iso: string): string {
   const date = new Date(iso);

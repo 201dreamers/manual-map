@@ -79,12 +79,11 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 * **FR-4.3 Manual Drag Override:** If the user manually drags or zooms the map during playback, camera auto-centering and rotation temporarily disable. A floating "Recenter" button appears to allow the user to re-enable camera tracking.
 
 ### 4.5 Telemetry & History Management
-* **FR-5.1 Live Dashboard Display:** Shown as small independent floating cards over the map (remaining + ETA; distance + position). Current speed is displayed by the speed slider readout rather than duplicated in its own card:
-  * Current Speed (km/h or mph) - shown on the speed slider
+* **FR-5.1 Live Dashboard Display:** A single compact card floating over the map:
   * Distance Covered vs. Total Route Distance
-  * Distance Remaining
   * Estimated Time to Arrival (ETA calculated at current speed setting)
-  * Current Latitude and Longitude coordinates
+  * Current Speed (km/h or mph) - shown on the speed slider, not duplicated here
+  * **Removed by request:** Distance Remaining (derivable from the distance pair) and the live latitude/longitude readout (the marker already shows position). Both remain in `TelemetryState` because the ETA calculation and the map marker depend on them.
 * **FR-5.2 Saved Routes History:** Generated routes are stored locally in `localStorage`.
 * **FR-5.3 History Manager:** A side drawer list displays saved routes with details (Name, Creation Date, Distance) and options to load or delete individual entries or clear all history.
 
@@ -103,8 +102,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 +---------------------------------------------------------+
 | [ Route History ]   [ Token / Settings ]   [ Reverse ]  |  <- Top Action Bar
 +---------------------------------------------------------+
-| [ REM 29.8 km | ETA 29 min ]                            |  <- Floating telemetry cards
-| [ 15.2/45.0 km | 50.4500, 30.5200 ]                     |     (wrap independently)
+| [ 15.2/45.0 km | ETA 29 min ]                           |  <- Floating telemetry card
 |                                                         |
 |                                                         |
 |                     MAP VIEWPORT                        |  <- Full-bleed Mapbox Vector Map

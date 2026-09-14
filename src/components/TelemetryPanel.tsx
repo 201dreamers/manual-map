@@ -1,13 +1,6 @@
-import type { ReactNode } from 'react';
-import { formatCoordinate, formatDistanceKm, formatEta } from '../lib/format';
+import { formatDistanceKm, formatEta } from '../lib/format';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_SURFACE } from './ui';
-
-function Card({ children }: { children: ReactNode }) {
-  return (
-    <div className={`flex items-center gap-3 rounded-2xl px-3 py-2 ${GLASS_SURFACE}`}>{children}</div>
-  );
-}
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -19,9 +12,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * Telemetry is split into small independent cards that wrap to the next line on
- * narrow screens, leaving as much of the map visible between them as possible.
- * Current speed is not repeated here: the speed slider already displays it.
+ * Progress along the route and the arrival estimate. Current speed lives on the
+ * speed slider, and the live coordinate is shown by the marker itself.
  */
 export function TelemetryPanel() {
   const telemetry = useSimulationStore((state) => state.displayTelemetry);
@@ -31,18 +23,13 @@ export function TelemetryPanel() {
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start gap-2">
-      <Card>
-        <Metric label="Remaining" value={`${formatDistanceKm(telemetry.remainingDistanceMeters)} km`} />
-        <Metric label="ETA" value={formatEta(telemetry.etaSeconds)} />
-      </Card>
-
-      <Card>
+      <div className={`flex items-center gap-4 rounded-2xl px-3 py-2 ${GLASS_SURFACE}`}>
         <Metric
           label="Distance"
           value={`${formatDistanceKm(telemetry.currentDistanceMeters)}/${formatDistanceKm(totalDistanceMeters)} km`}
         />
-        <Metric label="Position" value={formatCoordinate(telemetry.currentCoordinate)} />
-      </Card>
+        <Metric label="ETA" value={formatEta(telemetry.etaSeconds)} />
+      </div>
     </div>
   );
 }
