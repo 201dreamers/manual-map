@@ -61,7 +61,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 
 ### 4.2 Step Controls & Boundary Rules
 * **FR-2.1 Step Controls:** UI buttons for `- Step` and `+ Step`.
-* **FR-2.2 Configurable Step Distance:** Default value is 500 meters. Users can modify this value in an input box (e.g., 50m, 100m, 1000m).
+* **FR-2.2 Configurable Step Distance:** Forward and backward step distances are configured independently, each defaulting to 500 meters. Both are edited in the Settings modal (e.g., 50m, 100m, 1000m).
 * **FR-2.3 Polyline Interpolation:** Positional jumps snap to precise points along the road path geometry using Turf.js spatial interpolation math (`turf.along`).
 * **FR-2.4 Upper Boundary Clamp:** If `+ Step` exceeds total route length, the marker clamps strictly to 100% (route end) and active playback pauses.
 * **FR-2.5 Lower Boundary Clamp:** If `- Step` drops below 0 meters, the marker clamps strictly to 0m (route start).
@@ -109,13 +109,12 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 |                                                         |
 |                          ( ^ )                          |  <- Fixed Vehicle Marker (Points UP)
 |                                                         |
-|                   [ Recenter Camera ]                   |  <- Appears only after manual pan
+|  [ -500m ]        [ Recenter Camera ]        [ +500m ]  |  <- Floating step buttons; Recenter appears only after manual pan
 +---------------------------------------------------------+
 | SPEED: 60 km/h | 15.2 / 45.0 km                         |  <- Telemetry Header
 | ETA: 29 min    | POS: 50.4500, 30.5200                  |
 +---------------------------------------------------------+
-|     [ -500m ]         [ PLAY / PAUSE ]        [ +500m ] |  <- Step & Playback Controls
-|  Step Distance: [ 500 ] meters                          |
+|  [ |< ]        [ PLAY / PAUSE ]              [ mph ]    |  <- Playback Controls
 |  Speed: [============|--------------------] 60 km/h     |  <- Realtime Slider (0-180 km/h)
 +---------------------------------------------------------+
 ```
@@ -169,7 +168,8 @@ export interface TelemetryState {
 }
 
 export interface SimulationConfig {
-  stepSizeMeters: number; // default 500
+  stepForwardMeters: number; // default 500
+  stepBackMeters: number; // default 500
   speedKmh: number; // range 0 - 180
   speedUnit: 'kmh' | 'mph';
   isPlaying: boolean;

@@ -24,6 +24,9 @@ export const MIN_STEP_METERS = 10;
 export const MAX_STEP_METERS = 100000;
 export const MAX_SPEED_KMH = 180;
 
+/** Forward (+1) and backward (-1) travel along the route. */
+export type StepDirection = 1 | -1;
+
 const EMPTY_TELEMETRY: TelemetryState = {
   currentDistanceMeters: 0,
   currentSpeedKmh: 0,
@@ -34,7 +37,8 @@ const EMPTY_TELEMETRY: TelemetryState = {
 };
 
 const DEFAULT_CONFIG: SimulationConfig = {
-  stepSizeMeters: 500,
+  stepForwardMeters: 500,
+  stepBackMeters: 500,
   speedKmh: 60,
   speedUnit: 'kmh',
   isPlaying: false,
@@ -74,7 +78,7 @@ export interface SimulationState {
   deleteSavedRoute: (id: string) => void;
   clearSavedRoutes: () => void;
 
-  setStepSize: (meters: number) => void;
+  setStepDistance: (direction: StepDirection, meters: number) => void;
   setSpeed: (kmh: number) => void;
   setSpeedUnit: (unit: SimulationConfig['speedUnit']) => void;
   setCameraTracking: (enabled: boolean) => void;
@@ -83,7 +87,7 @@ export interface SimulationState {
   pause: () => void;
   togglePlay: () => void;
   resetToStart: () => void;
-  step: (direction: 1 | -1) => void;
+  step: (direction: StepDirection) => void;
 
   /** Advances the simulation by a frame delta. Called from the rAF loop only. */
   advance: (deltaSeconds: number) => void;
@@ -318,9 +322,10 @@ export const useSimulationStore = create<SimulationState>()(
 
       clearSavedRoutes: () => set({ savedRoutes: routeRepository.clear(), activeRoute: null }),
 
-      setStepSize: (meters) => {
+      setStepDistance: (direction, meters) => {
         const clamped = Math.min(Math.max(Math.round(meters), MIN_STEP_METERS), MAX_STEP_METERS);
-        set({ config: { ...get().config, stepSizeMeters: clamped } });
+        const key = direction === 1 ? 'stepForwardMeters' : 'stepBackMeters';
+        set({ config: { ...get().config, [key]: clamped } });
       },
 
       setSpeed: (kmh) => {
@@ -366,7 +371,9 @@ export const useSimulationStore = create<SimulationState>()(
         const { geometry, config, telemetry } = get();
         if (!geometry) return;
 
-        const target = telemetry.currentDistanceMeters + direction * config.stepSizeMeters;
+        const stepMeters =
+          direction === 1 ? config.stepForwardMeters : config.stepBackMeters;
+        const target = telemetry.currentDistanceMeters + direction * stepMeters;
         set({ config: { ...config, isPlaying: false } });
         applyDistance(target);
         get().syncDisplayTelemetry();

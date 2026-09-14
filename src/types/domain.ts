@@ -18,7 +18,8 @@ export interface TelemetryState {
 }
 
 export interface SimulationConfig {
-  stepSizeMeters: number; // default 500
+  stepForwardMeters: number; // default 500
+  stepBackMeters: number; // default 500
   speedKmh: number; // range 0 - 180
   speedUnit: 'kmh' | 'mph';
   isPlaying: boolean;

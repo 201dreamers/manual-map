@@ -4,6 +4,7 @@ import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
 import { RecenterButton } from './components/RecenterButton';
 import { SettingsModal } from './components/SettingsModal';
+import { StepButtons } from './components/StepButtons';
 import { TelemetryPanel } from './components/TelemetryPanel';
 import { ToastStack } from './components/ToastStack';
 import { TopBar } from './components/TopBar';
@@ -31,6 +32,7 @@ function App() {
             <p className="text-sm">Add a Mapbox public token to load the map.</p>
           </div>
         )}
+        <StepButtons />
         <RecenterButton />
       </main>
 
