@@ -4,8 +4,20 @@ export interface RouteMetadata {
   id: string;
   title: string;
   createdAt: string; // ISO timestamp
+  updatedAt?: string; // ISO timestamp of the last commit; absent until first driven
   totalDistanceMeters: number;
   coordinates: CoordinateTuple[];
+  /**
+   * The user-placed stops this route was built from, so a loaded route stays
+   * editable. Absent on routes saved before waypoint persistence existed.
+   */
+  waypoints?: SavedWaypoint[];
+}
+
+/** A stop as persisted in route history. */
+export interface SavedWaypoint {
+  coordinate: CoordinateTuple;
+  label?: string;
 }
 
 export interface TelemetryState {
@@ -30,10 +42,12 @@ export interface AppSettings {
   mapboxAccessToken: string | null;
 }
 
-/** A point the user tapped on the map, used as input for the Directions API. */
+/** A stop the user placed on the map, used as input for the Directions API. */
 export interface RoutePoint {
   id: string;
   coordinate: CoordinateTuple;
+  /** Human-readable name, e.g. from address search. Absent for map-tapped pins. */
+  label?: string;
 }
 
 export type ToastKind = 'error' | 'info' | 'success';

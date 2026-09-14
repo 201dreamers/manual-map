@@ -14,7 +14,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 
 | Feature Category | Version 1.0 (Initial Release) | Version 2.0 (Post-Launch) |
 |---|---|---|
-| **Route Source** | Interactive Mapbox route builder (Start, Destination, Waypoints). | GPX file import (parsing tracks/timestamps) & GPX export. |
+| **Route Source** | Interactive Mapbox route builder (Start, Destination, Waypoints). | Freehand draw-to-splice, planning drawer with reorder, address search (see Part II). GPX import/export deferred further. |
 | **Viewport Support** | Mobile Portrait view (iOS Safari optimization). | Landscape auto-reflow for horizontal car dash mounts. |
 | **Route Persistence** | Local route history list in `localStorage` with deletion/cleanup tools. | Syncing routes across devices or user accounts. |
 | **Styling & UI** | Tailwind CSS v4 responsive mobile-first HUD layout with Lucide icons. | User-customizable HUD themes and color palettes. |
@@ -189,3 +189,165 @@ On every `requestAnimationFrame` tick during active simulation:
 5. Extract coordinate using `turf.along(route_line, new_distance)`.
 6. Calculate target bearing using `turf.bearing(current_coord, next_coord)`.
 7. Rotate map canvas to `-bearing` degrees so vehicle points up on screen.
+
+---
+
+# Part II - Version 2: Draw, Plan & Search
+
+**Status:** Approved specification (planning session). Part I above describes the shipped V1 application.
+
+**Goal:** Build a route by sketching on the map, editing an ordered stop list, or searching addresses - with a drawn stroke reshaping only the part of the route it spans.
+
+## 7. Locked Decisions
+
+| # | Decision |
+|---|---|
+| D-1 | A stroke **splices only the span it covers**; start and end stay pinned. |
+| D-2 | Planning is an **inline drawer** over the live map - no separate mode. |
+| D-3 | A search result opens a **chooser**: Set start / + Via / Set end. |
+| D-4 | History is written on the **first Play press**; later edits update the same entry. |
+| D-5 | A far stroke **splices anyway**, with **undo** to revert. |
+
+## 8. Constraints
+
+* Mapbox Directions accepts **max 25 coordinates** per request. This is the hard ceiling on the whole design.
+* Public `pk.*` tokens only; secrets never committed. Local git, `main`, no remote.
+* Mobile portrait / iOS Safari; 44px minimum touch targets; 60 FPS during playback.
+* Minimal dependencies - no drag-and-drop library without an explicit decision.
+* TypeScript strict; `tsc -b` and `oxlint` must stay clean.
+
+## 9. Glossary
+
+* **Waypoint** - a user-placed point. `W0` = start, `Wn` = end, the rest are **vias**.
+* **Stroke** - the raw freehand polyline drawn by the user.
+* **Entry / exit** - the stroke's two ends projected onto the existing route line.
+* **Span** - route distance between entry and exit; the only part a splice replaces.
+* **Draft** - a built route that has not yet been driven, so not yet in history.
+* **Commit** - the first Play press on a draft.
+
+## 10. V2 Scope
+
+### 10.1 In Scope
+
+**Foundations (Phase 1)**
+* `RoutePoint` gains `label?: string`; `RouteMetadata` gains optional `waypoints` and `updatedAt`.
+* Save-on-commit replaces save-on-every-recalculation.
+* A general undo stack (depth 10) covering add / delete / reorder / splice, replacing `undoLastPoint`.
+
+**Planning drawer (Phase 2)**
+* Ordered stop list with label + role (Start / Via N / End), add, delete, reorder.
+* Reorder and delete trigger a debounced recalculation.
+* Loading a saved route restores its **waypoints**, so it stays editable.
+
+**Search (Phase 3)**
+* Mapbox Geocoding v6 forward, debounced 300 ms, min 3 chars, `proximity` = map centre, aborting in-flight requests.
+* Result chooser: Set start / + Via (inserted before the end) / Set end.
+
+**Draw-to-splice (Phase 4)**
+* A pen toggle arms drawing; map pan/zoom/rotate disable for the stroke, then re-enable and auto-disarm.
+* Live dashed stroke overlay while drawing.
+* Empty map -> stroke becomes a new route. Existing route -> stroke splices its span.
+* Undo control after every splice.
+
+### 10.2 Out of Scope (deferred)
+
+Drag-and-drop reordering (see A-2), multi-profile routing (walking/cycling), reverse geocoding of tapped pins, route naming/renaming, GPX, landscape, cross-device sync, offline search caching, alternate-route suggestions.
+
+## 11. Assumptions To Confirm
+
+| # | Assumption | Flip cost |
+|---|---|---|
+| A-1 | Stroke samples become **Directions via-points**, not Map Matching input. Map Matching caps `radiuses` at 50 m; a finger stroke at zoom 12 (~38 m/px) is routinely 200 m+ off-road, so it would return `NoSegment` on rough sketches. Via-points have no distance cap. Both endpoints verified working against the project token. | Low - isolated in one module |
+| A-2 | Reorder is **up/down arrow buttons**, not drag-and-drop, honouring the minimal-dependency rule. Touch DnD is ~100 lines of pointer-event code, or ~30 KB for dnd-kit. | Medium - UI only |
+| A-3 | Map-tapped points are labelled `Dropped pin (lat, lng)`; only searched points get real names. | Low |
+| A-4 | Stroke sampling budget is **6 via-points max**. | Low |
+| A-5 | Undo is in-memory only - not persisted across reload. | Low |
+
+## 12. Waypoint Budget (binding constraint)
+
+```
+25 total  -  2 (start + end)  -  2 (entry + exit)  -  keptVias  =  stroke budget
+```
+
+Capped at 6 samples. If `keptVias > 19`, the splice is refused with an explicit message rather than a silent truncation.
+
+## 13. Splice Algorithm
+
+1. Project stroke ends onto the route via `nearestPointOnLine` -> `entryDist`, `exitDist`.
+2. If `entryDist > exitDist`, reverse the stroke - the user drew it backwards.
+3. Keep vias outside the span; drop those inside it.
+4. Simplify the stroke, then sample evenly by distance to the budget.
+5. Rebuild: `[W0, ...keptBefore, entry, ...samples, exit, ...keptAfter, Wn]`.
+6. Drop any two consecutive waypoints closer than 10 m.
+
+## 14. Acceptance Criteria
+
+### Foundations
+* **AC-101** *(Required)* - Route built, never played -> history unchanged. Press Play -> exactly one entry appears. Edit a stop, press Play again -> still one entry, `updatedAt` advanced. *Verify: headless store harness.*
+* **AC-102** *(Required)* - Save a route with 2 vias, reload, load it from history -> the drawer shows 4 stops in original order with labels, not 2 endpoints. *Verify: headless harness.*
+* **AC-103** *(Required)* - A saved route stored before this change (no `waypoints` field) still loads and simulates, falling back to endpoint reconstruction. Must not throw or drop the entry. *Verify: harness with a legacy fixture.*
+* **AC-104** *(Required)* - After a splice, Undo restores the exact previous waypoint list and geometry. Ten successive operations are individually undoable. *Verify: headless harness.*
+
+### Planning drawer
+* **AC-201** *(Required)* - Route A->B, add a via, move it above the start -> recalculation fires once (debounced), list order matches the map, total distance changes. *Verify: harness + manual.*
+* **AC-202** *(Required)* - Delete the only via -> route returns to a direct A->B path; deleting down to one stop clears geometry without error. *Verify: headless harness.*
+* **AC-203** *(Important)* - The drawer does not block the step, play or speed controls while open. *Verify: manual on device (human judgment).*
+
+### Search
+* **AC-301** *(Required)* - Typing 3+ chars issues one request after 300 ms idle; typing again aborts the in-flight request. Rapid typing never leaves results out of order. *Verify: harness with a stubbed fetch counting calls/aborts.*
+* **AC-302** *(Required)* - Selecting a result with "Set start" replaces `W0` and keeps all other stops and their order. "+ Via" inserts immediately before the end. *Verify: headless harness.*
+* **AC-303** *(Required)* - A searched stop shows its address label in the drawer and in the generated route title (e.g. `Khreshchatyk 1 -> Boryspil Airport`). *Verify: headless harness.*
+* **AC-304** *(Required)* - Geocoding 401/403 shows "Mapbox rejected the access token. Check it in Settings." and does not clear the route. *Verify: harness with stubbed 401.*
+* **AC-305** *(Important)* - Searching a street name with the map centred on Kyiv returns Kyiv matches in the top 3. **Known to fail** with plain `proximity` - needs tuning (`country`, `types`, or proximity weighting). *Verify: live API call.*
+
+### Draw-to-splice
+* **AC-401** *(Required)* - With drawing armed, a drag draws a stroke and the map does not pan; on release, gestures are restored and the pen disarms. *Verify: manual on device - not reproducible headlessly.*
+* **AC-402** *(Required)* - Empty map + stroke -> a drivable route whose ends are near the stroke's ends. *Verify: live-API harness.*
+* **AC-403** *(Required)* - Route A->B + stroke across the middle -> A and B unchanged (within 10 m), and geometry between entry and exit differs from before. *Verify: live-API harness.*
+* **AC-404** *(Required)* - A stroke drawn end-to-start splices identically to one drawn start-to-end. *Verify: headless harness.*
+* **AC-405** *(Required)* - A route with 20 vias + stroke -> refused with "Too many stops to reshape this route" rather than exceeding 25 coordinates. *Verify: headless harness.*
+* **AC-406** *(Important)* - A 300-point stroke is reduced to <=6 via-points before the request. *Verify: headless harness.*
+
+## 15. Failure Behavior
+
+| Situation | Expected |
+|---|---|
+| Stroke shorter than ~20 px (a tap) | Ignore silently, disarm pen, route untouched |
+| Stroke of fewer than 2 distinct points | Ignore silently |
+| Splice would exceed 25 coordinates | Refuse with explicit message; route untouched |
+| Directions returns `NoRoute` after a splice | Restore previous route, show existing FR-1.3 message |
+| Stroke far from route | Splice anyway (D-5); Undo available |
+| Geocoding returns zero results | "No places found" empty state; route untouched |
+| Geocoding 429 | "Search rate limit reached. Try again in a moment."; no route change |
+| Geocoding network failure | Inline retry in the results panel; route untouched |
+| Reorder during active playback | Pause playback, recalculate, reset position to 0 m |
+| Delete a stop leaving fewer than 2 | Clear geometry, keep remaining stop, no error toast |
+| Legacy saved route without `waypoints` | Load read-only via endpoint fallback; editing re-derives stops |
+| Undo pressed with empty stack | Control hidden/disabled - never a no-op tap |
+
+## 16. Phases
+
+1. **Foundations** - labels, schema + back-compat, save-on-commit, undo stack. Nothing else is safe to build first. AC-101..104.
+2. **Planning drawer** - list, add, delete, reorder. AC-201..203.
+3. **Search** - geocoding client, panel, chooser, title generation. AC-301..305.
+4. **Draw-to-splice** - gesture capture, projection math, budget, splice. Riskiest; depends on 1 and 2. AC-401..406.
+
+Phases 2 and 3 may swap; 1 must be first and 4 last.
+
+## 17. Verify
+
+```bash
+npm run build          # tsc -b strict + vite build
+npm run lint           # oxlint
+# headless harness (existing pattern): vite ssr build -> node
+# live-API harness gated on MB_TOKEN
+```
+
+Existing suites that must stay green: geo math (14), store logic (26), token validation (8), step defaults (11).
+
+## 18. Known Risks
+
+* **Gestures and reordering cannot be verified headlessly** - no browser in the build environment. AC-203 and AC-401 require on-device testing.
+* **The 25-coordinate ceiling** is the sharpest edge: a heavily-via'd route plus a stroke hits it. AC-405 pins the behavior.
+* **AC-305 is a known current failure**, not hypothetical - search relevance needs real tuning work.
+* **Splice on a self-intersecting route** (a loop crossing itself) can project entry/exit ambiguously. Not covered in V2.

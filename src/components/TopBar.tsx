@@ -9,7 +9,8 @@ export function TopBar() {
   const openHistory = useSimulationStore((state) => state.openHistory);
   const openSettings = useSimulationStore((state) => state.openSettings);
   const reverseRoute = useSimulationStore((state) => state.reverseRoute);
-  const undoLastPoint = useSimulationStore((state) => state.undoLastPoint);
+  const undo = useSimulationStore((state) => state.undo);
+  const canUndo = useSimulationStore((state) => state.undoStack.length > 0);
   const clearRoute = useSimulationStore((state) => state.clearRoute);
   const pointCount = useSimulationStore((state) => state.routePoints.length);
   const isRouting = useSimulationStore((state) => state.isRouting);
@@ -39,9 +40,9 @@ export function TopBar() {
       <button
         type="button"
         className={BUTTON_CLASS}
-        onClick={() => void undoLastPoint()}
-        disabled={pointCount === 0 || isRouting}
-        aria-label="Undo last point"
+        onClick={undo}
+        disabled={!canUndo || isRouting}
+        aria-label="Undo last route change"
       >
         <Undo2 size={20} />
       </button>

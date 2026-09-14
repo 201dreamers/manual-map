@@ -1,4 +1,4 @@
-import type { AppSettings, RouteMetadata } from '../types/domain';
+import type { AppSettings, RouteMetadata, SavedWaypoint } from '../types/domain';
 
 const ROUTES_KEY = 'manual-map:routes';
 const SETTINGS_KEY = 'manual-map:settings';
@@ -33,6 +33,15 @@ function isCoordinateTuple(value: unknown): boolean {
   );
 }
 
+function isSavedWaypoint(value: unknown): value is SavedWaypoint {
+  if (typeof value !== 'object' || value === null) return false;
+  const waypoint = value as Partial<SavedWaypoint>;
+  return (
+    isCoordinateTuple(waypoint.coordinate) &&
+    (waypoint.label === undefined || typeof waypoint.label === 'string')
+  );
+}
+
 function isRouteMetadata(value: unknown): value is RouteMetadata {
   if (typeof value !== 'object' || value === null) return false;
   const route = value as Partial<RouteMetadata>;
@@ -43,7 +52,11 @@ function isRouteMetadata(value: unknown): value is RouteMetadata {
     typeof route.totalDistanceMeters === 'number' &&
     Array.isArray(route.coordinates) &&
     route.coordinates.length >= 2 &&
-    route.coordinates.every(isCoordinateTuple)
+    route.coordinates.every(isCoordinateTuple) &&
+    // Both fields are optional so routes saved before they existed still load.
+    (route.updatedAt === undefined || typeof route.updatedAt === 'string') &&
+    (route.waypoints === undefined ||
+      (Array.isArray(route.waypoints) && route.waypoints.every(isSavedWaypoint)))
   );
 }
 

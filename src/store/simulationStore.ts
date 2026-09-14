@@ -27,6 +27,17 @@ export const MAX_SPEED_KMH = 180;
 /** Forward (+1) and backward (-1) travel along the route. */
 export type StepDirection = 1 | -1;
 
+/** How many route-changing operations can be reverted. */
+export const UNDO_DEPTH = 10;
+
+/** A revertible snapshot of everything a route-changing operation touches. */
+interface RouteSnapshot {
+  routePoints: RoutePoint[];
+  geometry: RouteGeometry | null;
+  activeRoute: RouteMetadata | null;
+  distanceMeters: number;
+}
+
 const EMPTY_TELEMETRY: TelemetryState = {
   currentDistanceMeters: 0,
   currentSpeedKmh: 0,
@@ -63,6 +74,8 @@ export interface SimulationState {
 
   savedRoutes: RouteMetadata[];
   toasts: ToastMessage[];
+  /** Most recent snapshot last. Capped at UNDO_DEPTH. */
+  undoStack: RouteSnapshot[];
 
   setToken: (token: string) => void;
   removeToken: () => void;
@@ -70,7 +83,7 @@ export interface SimulationState {
   openHistory: (open: boolean) => void;
 
   addRoutePoint: (coordinate: CoordinateTuple) => Promise<void>;
-  undoLastPoint: () => Promise<void>;
+  undo: () => void;
   clearRoute: () => void;
   reverseRoute: () => Promise<void>;
 
@@ -124,10 +137,15 @@ function buildTelemetry(
   };
 }
 
-function routeTitle(coordinates: CoordinateTuple[]): string {
-  const [startLng, startLat] = coordinates[0];
-  const [endLng, endLat] = coordinates[coordinates.length - 1];
-  return `${startLat.toFixed(3)}, ${startLng.toFixed(3)} → ${endLat.toFixed(3)}, ${endLng.toFixed(3)}`;
+function pointLabel(point: RoutePoint): string {
+  if (point.label) return point.label;
+  const [lng, lat] = point.coordinate;
+  return `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+}
+
+function buildRouteTitle(points: RoutePoint[]): string {
+  if (points.length === 0) return 'Untitled route';
+  return `${pointLabel(points[0])} → ${pointLabel(points[points.length - 1])}`;
 }
 
 /** In-flight Directions request, aborted whenever a newer one supersedes it. */
@@ -135,11 +153,27 @@ let pendingRouteRequest: AbortController | null = null;
 
 export const useSimulationStore = create<SimulationState>()(
   subscribeWithSelector((set, get) => {
+    const captureSnapshot = (): RouteSnapshot => {
+      const { routePoints, geometry, activeRoute, telemetry } = get();
+      return {
+        routePoints,
+        geometry,
+        activeRoute,
+        distanceMeters: telemetry.currentDistanceMeters,
+      };
+    };
+
+    const pushUndo = (snapshot: RouteSnapshot) => {
+      const next = [...get().undoStack, snapshot];
+      set({ undoStack: next.slice(-UNDO_DEPTH) });
+    };
+
     /**
      * Recalculates road geometry for the given tap points. On failure the invalid
      * segment is dropped (FR-1.3) and the previous state is restored.
      */
     const recalculateRoute = async (points: RoutePoint[], previous: RoutePoint[]) => {
+      const snapshot = captureSnapshot();
       const token = get().mapboxToken;
       if (!token) {
         set({ routePoints: previous });
@@ -156,6 +190,7 @@ export const useSimulationStore = create<SimulationState>()(
           displayTelemetry: { ...EMPTY_TELEMETRY, currentSpeedKmh: get().config.speedKmh },
           config: { ...get().config, isPlaying: false },
         });
+        pushUndo(snapshot);
         return;
       }
 
@@ -172,12 +207,20 @@ export const useSimulationStore = create<SimulationState>()(
           controller.signal,
         );
         const geometry = buildRouteGeometry(result.coordinates);
+        // Edits keep the same identity, so committing updates one history row
+        // instead of appending a near-duplicate for every recalculation.
+        const previousRoute = get().activeRoute;
         const route: RouteMetadata = {
-          id: createId(),
-          title: routeTitle(result.coordinates),
-          createdAt: new Date().toISOString(),
+          id: previousRoute?.id ?? createId(),
+          title: buildRouteTitle(points),
+          createdAt: previousRoute?.createdAt ?? new Date().toISOString(),
+          updatedAt: previousRoute?.updatedAt,
           totalDistanceMeters: geometry.totalDistanceMeters,
           coordinates: geometry.coordinates,
+          waypoints: points.map((point) => ({
+            coordinate: point.coordinate,
+            label: point.label,
+          })),
         };
 
         const telemetry = buildTelemetry(geometry, 0, get().config.speedKmh);
@@ -187,9 +230,9 @@ export const useSimulationStore = create<SimulationState>()(
           isRouting: false,
           telemetry,
           displayTelemetry: telemetry,
-          savedRoutes: routeRepository.save(route),
           config: { ...get().config, cameraTrackingEnabled: true },
         });
+        pushUndo(snapshot);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         const message =
@@ -199,6 +242,14 @@ export const useSimulationStore = create<SimulationState>()(
       } finally {
         if (pendingRouteRequest === controller) pendingRouteRequest = null;
       }
+    };
+
+    /** D-4: history is written on commit (the first Play press), not on every edit. */
+    const commitActiveRoute = () => {
+      const activeRoute = get().activeRoute;
+      if (!activeRoute) return;
+      const committed: RouteMetadata = { ...activeRoute, updatedAt: new Date().toISOString() };
+      set({ activeRoute: committed, savedRoutes: routeRepository.save(committed) });
     };
 
     const applyDistance = (distanceMeters: number, options: { pauseAtEnd?: boolean } = {}) => {
@@ -234,6 +285,7 @@ export const useSimulationStore = create<SimulationState>()(
 
       savedRoutes: routeRepository.list(),
       toasts: [],
+      undoStack: [],
 
       setToken: (token) => {
         persistToken(token);
@@ -258,13 +310,33 @@ export const useSimulationStore = create<SimulationState>()(
         await recalculateRoute(next, previous);
       },
 
-      undoLastPoint: async () => {
-        const previous = get().routePoints;
-        if (previous.length === 0) return;
-        await recalculateRoute(previous.slice(0, -1), previous);
+      undo: () => {
+        const stack = get().undoStack;
+        if (stack.length === 0) return;
+
+        pendingRouteRequest?.abort();
+        pendingRouteRequest = null;
+
+        const snapshot = stack[stack.length - 1];
+        const telemetry = buildTelemetry(
+          snapshot.geometry,
+          snapshot.distanceMeters,
+          get().config.speedKmh,
+        );
+        set({
+          undoStack: stack.slice(0, -1),
+          routePoints: snapshot.routePoints,
+          geometry: snapshot.geometry,
+          activeRoute: snapshot.activeRoute,
+          isRouting: false,
+          telemetry,
+          displayTelemetry: telemetry,
+          config: { ...get().config, isPlaying: false },
+        });
       },
 
       clearRoute: () => {
+        const snapshot = captureSnapshot();
         pendingRouteRequest?.abort();
         pendingRouteRequest = null;
         const telemetry = { ...EMPTY_TELEMETRY, currentSpeedKmh: get().config.speedKmh };
@@ -277,6 +349,7 @@ export const useSimulationStore = create<SimulationState>()(
           displayTelemetry: telemetry,
           config: { ...get().config, isPlaying: false, cameraTrackingEnabled: true },
         });
+        pushUndo(snapshot);
       },
 
       // FR-1.4: swap start and destination, recalculate geometry, reset to 0 m.
@@ -293,22 +366,35 @@ export const useSimulationStore = create<SimulationState>()(
         const route = get().savedRoutes.find((entry) => entry.id === id);
         if (!route) return;
 
+        const snapshot = captureSnapshot();
         try {
           const geometry = buildRouteGeometry(route.coordinates);
           const telemetry = buildTelemetry(geometry, 0, get().config.speedKmh);
-          const endpoints: RoutePoint[] = [
-            { id: createId(), coordinate: geometry.coordinates[0] },
-            { id: createId(), coordinate: geometry.coordinates[geometry.coordinates.length - 1] },
-          ];
+          const saved = route.waypoints;
+          const restored: RoutePoint[] =
+            saved && saved.length >= 2
+              ? saved.map((waypoint) => ({
+                  id: createId(),
+                  coordinate: waypoint.coordinate,
+                  label: waypoint.label,
+                }))
+              : [
+                  { id: createId(), coordinate: geometry.coordinates[0] },
+                  {
+                    id: createId(),
+                    coordinate: geometry.coordinates[geometry.coordinates.length - 1],
+                  },
+                ];
           set({
             geometry,
             activeRoute: route,
-            routePoints: endpoints,
+            routePoints: restored,
             telemetry,
             displayTelemetry: telemetry,
             isHistoryOpen: false,
             config: { ...get().config, isPlaying: false, cameraTrackingEnabled: true },
           });
+          pushUndo(snapshot);
         } catch {
           get().pushToast('error', 'That saved route is corrupted and cannot be loaded.');
         }
@@ -353,6 +439,7 @@ export const useSimulationStore = create<SimulationState>()(
         if (telemetry.currentDistanceMeters >= geometry.totalDistanceMeters) {
           applyDistance(0);
         }
+        commitActiveRoute();
         set({ config: { ...get().config, isPlaying: true } });
       },
 
