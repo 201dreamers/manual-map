@@ -240,7 +240,7 @@ On every `requestAnimationFrame` tick during active simulation:
 * Loading a saved route restores its **waypoints**, so it stays editable.
 
 **Search (Phase 3)**
-* Mapbox Geocoding v6 forward, debounced 300 ms, min 3 chars, `proximity` = map centre, aborting in-flight requests.
+* Mapbox Geocoding v6 forward, debounced 300 ms, min 3 chars, viewport + regional `bbox` biasing (see AC-305), aborting in-flight requests.
 * Result chooser: Set start / + Via (inserted before the end) / Set end.
 
 **Draw-to-splice (Phase 4)**
@@ -298,7 +298,10 @@ Capped at 6 samples. If `keptVias > 19`, the splice is refused with an explicit 
 * **AC-302** *(Required)* - Selecting a result with "Set start" replaces `W0` and keeps all other stops and their order. "+ Via" inserts immediately before the end. *Verify: headless harness.*
 * **AC-303** *(Required)* - A searched stop shows its address label in the drawer and in the generated route title (e.g. `Khreshchatyk 1 -> Boryspil Airport`). *Verify: headless harness.*
 * **AC-304** *(Required)* - Geocoding 401/403 shows "Mapbox rejected the access token. Check it in Settings." and does not clear the route. *Verify: harness with stubbed 401.*
-* **AC-305** *(Important)* - Searching a street name with the map centred on Kyiv returns Kyiv matches in the top 3. **Known to fail** with plain `proximity` - needs tuning (`country`, `types`, or proximity weighting). *Verify: live API call.*
+* **AC-305** *(Important)* **[revised]** - Searching a street name with the map centred on Kyiv returns Kyiv matches in the top 3, and places just off-screen (a nearby airport) remain findable. *Verify: live API call.*
+  * **Constraint found:** measured against the live API, `proximity` does not affect ranking at all, and `country` / `types` change nothing. Only `bbox` ranks correctly, but it *restricts* rather than biases. An unbiased query is worse still: "Boryspil International Airport" returns a street in Tennessee.
+  * **Resolution:** two `bbox` queries run in parallel - the viewport, and a regionally expanded box (8x, capped at 6 degrees) - merged nearest-first and deduped by `mapbox_id`.
+  * **Scope cut:** search is therefore **regional, not global**. To find somewhere distant, pan the map there first. Worldwide relevance is not achievable with this API without a country hint the app does not have.
 
 ### Draw-to-splice
 * **AC-401** *(Required)* - With drawing armed, a drag draws a stroke and the map does not pan; on release, gestures are restored and the pen disarms. *Verify: manual on device - not reproducible headlessly.*
@@ -318,6 +321,8 @@ Capped at 6 samples. If `keptVias > 19`, the splice is refused with an explicit 
 | Directions returns `NoRoute` after a splice | Restore previous route, show existing FR-1.3 message |
 | Stroke far from route | Splice anyway (D-5); Undo available |
 | Geocoding returns zero results | "No places found" empty state; route untouched |
+| Viewport wider than 2 degrees | Skip bbox biasing; issue one unbiased query |
+| One of the two bbox queries fails | Use the other; surface an error only if both fail |
 | Geocoding 429 | "Search rate limit reached. Try again in a moment."; no route change |
 | Geocoding network failure | Inline retry in the results panel; route untouched |
 | Reorder during active playback | Pause playback, recalculate, reset position to 0 m |

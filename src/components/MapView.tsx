@@ -83,6 +83,16 @@ export function MapView() {
       renderRoute(map, useSimulationStore.getState().geometry?.coordinates ?? null);
     });
 
+    const publishViewport = () => {
+      const bounds = map.getBounds();
+      if (!bounds) return;
+      useSimulationStore
+        .getState()
+        .setViewport([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
+    };
+    map.on('load', publishViewport);
+    map.on('moveend', publishViewport);
+
     map.on('click', (event) => {
       void useSimulationStore
         .getState()

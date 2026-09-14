@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { DirectionsError, fetchDrivingRoute, MAX_ROUTE_POINTS } from '../lib/directions';
 import {
+  GeocodingError,
+  searchPlaces,
+  type BoundingBox,
+  type GeocodeResult,
+} from '../lib/geocoding';
+import {
   bearingAtDistance,
   buildRouteGeometry,
   clampDistance,
@@ -32,6 +38,14 @@ export const UNDO_DEPTH = 10;
 
 /** Drawer edits coalesce for this long so a burst of reorders costs one request. */
 export const RECALC_DEBOUNCE_MS = 400;
+
+/** Idle time before a typed query is sent. */
+export const SEARCH_DEBOUNCE_MS = 300;
+/** Shorter queries match too much to be useful. */
+export const MIN_SEARCH_LENGTH = 3;
+
+/** Where a chosen search result is placed in the stop list. */
+export type SearchRole = 'start' | 'via' | 'end';
 
 /** A revertible snapshot of everything a route-changing operation touches. */
 interface RouteSnapshot {
@@ -65,6 +79,13 @@ export interface SimulationState {
   isHistoryOpen: boolean;
   isPlanOpen: boolean;
 
+  searchQuery: string;
+  searchResults: GeocodeResult[];
+  isSearching: boolean;
+  searchError: string | null;
+  /** Current map bounds, used to bias search towards what the user is looking at. */
+  viewport: BoundingBox | null;
+
   routePoints: RoutePoint[];
   geometry: RouteGeometry | null;
   activeRoute: RouteMetadata | null;
@@ -86,6 +107,10 @@ export interface SimulationState {
   openSettings: (open: boolean) => void;
   openHistory: (open: boolean) => void;
   openPlan: (open: boolean) => void;
+  setViewport: (viewport: BoundingBox) => void;
+  setSearchQuery: (query: string) => void;
+  clearSearch: () => void;
+  applySearchResult: (result: GeocodeResult, role: SearchRole) => Promise<void>;
 
   addRoutePoint: (coordinate: CoordinateTuple) => Promise<void>;
   moveRoutePoint: (id: string, direction: StepDirection) => void;
@@ -157,6 +182,12 @@ function buildRouteTitle(points: RoutePoint[]): string {
 
 /** In-flight Directions request, aborted whenever a newer one supersedes it. */
 let pendingRouteRequest: AbortController | null = null;
+
+/** In-flight geocoding request, aborted whenever a newer query supersedes it. */
+let pendingSearchRequest: AbortController | null = null;
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+/** Guards against a slow earlier query overwriting a later one's results. */
+let searchSequence = 0;
 
 /** Coalesces a burst of drawer edits into a single recalculation. */
 let recalcTimer: ReturnType<typeof setTimeout> | null = null;
@@ -266,6 +297,40 @@ export const useSimulationStore = create<SimulationState>()(
       }
     };
 
+    const runSearch = async (query: string) => {
+      const token = get().mapboxToken;
+      if (!token) {
+        set({ isSearching: false, searchError: 'Add a Mapbox public token in Settings first.' });
+        return;
+      }
+
+      pendingSearchRequest?.abort();
+      const controller = new AbortController();
+      pendingSearchRequest = controller;
+      const sequence = ++searchSequence;
+
+      try {
+        const results = await searchPlaces(query, token, {
+          viewport: get().viewport ?? undefined,
+          signal: controller.signal,
+        });
+        // A slower earlier query must never clobber a newer one's results.
+        if (sequence !== searchSequence) return;
+        set({ searchResults: results, isSearching: false, searchError: null });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (sequence !== searchSequence) return;
+        set({
+          searchResults: [],
+          isSearching: false,
+          searchError:
+            error instanceof GeocodingError ? error.message : 'Address search failed.',
+        });
+      } finally {
+        if (pendingSearchRequest === controller) pendingSearchRequest = null;
+      }
+    };
+
     /**
      * Applies a stop-list edit immediately so the drawer stays responsive, then
      * recalculates once the user stops editing.
@@ -319,6 +384,12 @@ export const useSimulationStore = create<SimulationState>()(
       isHistoryOpen: false,
       isPlanOpen: false,
 
+      searchQuery: '',
+      searchResults: [],
+      isSearching: false,
+      searchError: null,
+      viewport: null,
+
       routePoints: [],
       geometry: null,
       activeRoute: null,
@@ -346,6 +417,63 @@ export const useSimulationStore = create<SimulationState>()(
       openHistory: (open) => set({ isHistoryOpen: open }),
 
       openPlan: (open) => set({ isPlanOpen: open }),
+
+      setViewport: (viewport) => set({ viewport }),
+
+      setSearchQuery: (query) => {
+        set({ searchQuery: query, searchError: null });
+
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = null;
+
+        if (query.trim().length < MIN_SEARCH_LENGTH) {
+          pendingSearchRequest?.abort();
+          pendingSearchRequest = null;
+          searchSequence++;
+          set({ searchResults: [], isSearching: false });
+          return;
+        }
+
+        set({ isSearching: true });
+        searchTimer = setTimeout(() => {
+          searchTimer = null;
+          void runSearch(query);
+        }, SEARCH_DEBOUNCE_MS);
+      },
+
+      clearSearch: () => {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = null;
+        pendingSearchRequest?.abort();
+        pendingSearchRequest = null;
+        searchSequence++;
+        set({ searchQuery: '', searchResults: [], isSearching: false, searchError: null });
+      },
+
+      // D-3: the caller decides whether a result becomes the start, a via or the end.
+      applySearchResult: async (result, role) => {
+        const points = get().routePoints;
+        const point: RoutePoint = {
+          id: createId(),
+          coordinate: result.coordinate,
+          label: result.name,
+        };
+
+        let next: RoutePoint[];
+        if (role === 'start') {
+          next = points.length === 0 ? [point] : [point, ...points.slice(1)];
+        } else if (role === 'end') {
+          next = points.length <= 1 ? [...points, point] : [...points.slice(0, -1), point];
+        } else {
+          next =
+            points.length <= 1
+              ? [...points, point]
+              : [...points.slice(0, -1), point, points[points.length - 1]];
+        }
+
+        get().clearSearch();
+        await recalculateRoute(next, points);
+      },
 
       addRoutePoint: async (coordinate) => {
         const previous = get().routePoints;

@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, MapPin, Trash2, X } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import type { RoutePoint } from '../types/domain';
+import { SearchPanel } from './SearchPanel';
 import { GLASS_SURFACE } from './ui';
 
 /** Clears the floating control cluster so playback stays reachable (AC-203). */
@@ -54,6 +55,8 @@ export function PlanDrawer() {
           <X size={18} />
         </button>
       </header>
+
+      <SearchPanel />
 
       <div className="flex-1 overflow-y-auto">
         {total === 0 ? (
