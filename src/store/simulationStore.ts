@@ -97,6 +97,8 @@ export interface SimulationState {
   viewport: BoundingBox | null;
   /** Incremented to ask the map to frame the whole route once. */
   fitRequestId: number;
+  /** Incremented to ask the map to rotate back to north. */
+  northRequestId: number;
 
   routePoints: RoutePoint[];
   geometry: RouteGeometry | null;
@@ -120,6 +122,7 @@ export interface SimulationState {
   openHistory: (open: boolean) => void;
   openPlan: (open: boolean) => void;
   setDrawArmed: (armed: boolean) => void;
+  resetNorth: () => void;
   applyStroke: (stroke: CoordinateTuple[]) => Promise<void>;
   setViewport: (viewport: BoundingBox) => void;
   setSearchQuery: (query: string) => void;
@@ -445,6 +448,7 @@ export const useSimulationStore = create<SimulationState>()(
       searchError: null,
       viewport: null,
       fitRequestId: 0,
+      northRequestId: 0,
 
       routePoints: [],
       geometry: null,
@@ -475,6 +479,16 @@ export const useSimulationStore = create<SimulationState>()(
       openPlan: (open) => set({ isPlanOpen: open }),
 
       setDrawArmed: (armed) => set({ isDrawArmed: armed }),
+
+      /**
+       * Rotates the map back to north. Heading-up tracking is released at the same
+       * time, otherwise the next playback frame would immediately rotate it away.
+       */
+      resetNorth: () =>
+        set({
+          northRequestId: get().northRequestId + 1,
+          config: { ...get().config, cameraTrackingEnabled: false },
+        }),
 
       /**
        * D-1: a stroke reshapes the span it covers, or builds a fresh route when the

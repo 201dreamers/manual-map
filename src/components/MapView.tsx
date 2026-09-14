@@ -257,6 +257,21 @@ export function MapView() {
     [],
   );
 
+  // A north request rotates the camera upright without moving it.
+  useEffect(
+    () =>
+      useSimulationStore.subscribe(
+        (state) => state.northRequestId,
+        () => {
+          const map = mapRef.current;
+          if (!map) return;
+          appliedBearingRef.current = 0;
+          map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
+        },
+      ),
+    [],
+  );
+
   // Tap points -> waypoint markers.
   useEffect(() => {
     const render = (points: { id: string; coordinate: CoordinateTuple }[]) => {
