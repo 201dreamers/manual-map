@@ -54,12 +54,35 @@ gitignored - no token ever belongs in a commit.
 
 Playback is foreground-only: hiding the tab pauses the simulation.
 
+## Installing on iOS
+
+The app is a PWA, so it can be installed to the Home Screen and then runs from the
+phone without the dev server.
+
+1. Serve the production build over **HTTPS** (a service worker will not install over
+   plain HTTP, so a LAN IP is not enough):
+   ```bash
+   npm run build && npm run preview -- --host
+   ```
+   then expose it with a stable HTTPS origin, e.g. `tailscale serve` or a tunnel.
+2. Open that URL in Safari, then Share -> **Add to Home Screen**.
+3. Launch from the new icon. The app shell is precached, so it starts without the
+   laptop and runs fullscreen with the notch and home-indicator insets applied.
+
+Being a secure context, the installed app can also hold a **screen wake lock** during
+playback, which plain-HTTP LAN access cannot.
+
+**Map data still needs a connection.** Mapbox tiles, Directions and Geocoding are live
+calls and are deliberately not cached, so the app shell works offline but the map does
+not. Rebuilds are picked up automatically on the next launch.
+
 ## Scripts
 
 ```bash
 npm run dev       # dev server
 npm run build     # type-check (tsc -b) and production build
 npm run lint      # oxlint
+npm test          # headless suites (live Mapbox suite runs when a token is present)
 npm run preview   # serve the production build
 ```
 

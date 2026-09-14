@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#020617"/>
+  <!-- Route line, matching the in-app casing and stroke colours. -->
+  <path d="M136 408 C 136 316, 246 330, 252 258 C 258 186, 368 200, 368 132"
+        fill="none" stroke="#0c4a6e" stroke-width="54" stroke-linecap="round"/>
+  <path d="M136 408 C 136 316, 246 330, 252 258 C 258 186, 368 200, 368 132"
+        fill="none" stroke="#38bdf8" stroke-width="30" stroke-linecap="round"/>
+  <!-- Start point. -->
+  <circle cx="136" cy="408" r="26" fill="#22c55e" stroke="#020617" stroke-width="10"/>
+  <!-- Vehicle marker, the same arrow used on the map. -->
+  <g transform="translate(368 132) scale(3.6) translate(-12 -12)">
+    <path d="M12 2 20 21 12 16.8 4 21Z" fill="#0ea5e9" stroke="#f8fafc"
+          stroke-width="1.6" stroke-linejoin="round"/>
+  </g>
+</svg>

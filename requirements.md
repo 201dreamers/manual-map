@@ -42,10 +42,11 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 | **Target Browsers** | Safari on iOS (iOS 15+ focus) and modern mobile/desktop web browsers. |
 | **Orientation (V1)** | Portrait viewport optimization. Responsive layout targeting standard iPhone dimensions. |
 | **Touch Ergonomics** | Minimum 44x44px touch target sizes for primary buttons to satisfy iOS Safari mobile guidelines. |
-| **Screen Persistence** | **Web Wake Lock API integration**: Prevents the iPhone display from dimming or sleeping during active playback. |
+| **Screen Persistence** | **Web Wake Lock API integration**: Prevents the iPhone display from dimming or sleeping during active playback. Requires a secure context, so it is active when installed as a PWA or served over HTTPS, and absent over plain-HTTP LAN access. |
 | **Map Rendering** | 60 FPS vector map rendering and rotation using WebGL via Mapbox GL JS. |
 | **Performance Safeguard** | Large coordinate arrays returned from APIs are automatically downsampled using Turf.js simplify algorithms to maintain high frame rates on mobile GPUs. |
 | **Execution Context** | Foreground web tab execution. Simulation pauses if the browser tab is hidden or minimized. |
+| **Installability** | Installable PWA (`vite-plugin-pwa`, Workbox `generateSW`). The app shell is precached so an installed copy launches without a dev server; Mapbox tiles and API responses are deliberately not cached, as their terms restrict offline storage and stale routing data would mislead. Workbox's default 2 MiB precache ceiling is raised, since the app bundle exceeds it. |
 | **Repository & Deployment** | **Strictly local work:** Local Git repository only (`main` branch). No remote repository configured; zero remote push operations. |
 | **Secrets & Credential Security** | **Zero-secret repository policy:** Passwords, API tokens, and secret keys must never be committed to Git or hardcoded in client source files. All sensitive environment files (`.env`, `.env.local`) are strictly gitignored. Safe template provided via `.env.example`. |
 
