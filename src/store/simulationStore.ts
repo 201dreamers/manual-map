@@ -85,6 +85,8 @@ export interface SimulationState {
   searchError: string | null;
   /** Current map bounds, used to bias search towards what the user is looking at. */
   viewport: BoundingBox | null;
+  /** Incremented to ask the map to frame the whole route once. */
+  fitRequestId: number;
 
   routePoints: RoutePoint[];
   geometry: RouteGeometry | null;
@@ -283,7 +285,7 @@ export const useSimulationStore = create<SimulationState>()(
           isRouting: false,
           telemetry,
           displayTelemetry: telemetry,
-          config: { ...get().config, cameraTrackingEnabled: true },
+          config: { ...get().config, cameraTrackingEnabled: false },
         });
         pushUndo(snapshot);
       } catch (error) {
@@ -389,6 +391,7 @@ export const useSimulationStore = create<SimulationState>()(
       isSearching: false,
       searchError: null,
       viewport: null,
+      fitRequestId: 0,
 
       routePoints: [],
       geometry: null,
@@ -543,7 +546,7 @@ export const useSimulationStore = create<SimulationState>()(
           isRouting: false,
           telemetry,
           displayTelemetry: telemetry,
-          config: { ...get().config, isPlaying: false, cameraTrackingEnabled: true },
+          config: { ...get().config, isPlaying: false, cameraTrackingEnabled: false },
         });
         pushUndo(snapshot);
       },
@@ -588,7 +591,8 @@ export const useSimulationStore = create<SimulationState>()(
             telemetry,
             displayTelemetry: telemetry,
             isHistoryOpen: false,
-            config: { ...get().config, isPlaying: false, cameraTrackingEnabled: true },
+            fitRequestId: get().fitRequestId + 1,
+            config: { ...get().config, isPlaying: false, cameraTrackingEnabled: false },
           });
           pushUndo(snapshot);
         } catch {
@@ -636,7 +640,7 @@ export const useSimulationStore = create<SimulationState>()(
           applyDistance(0);
         }
         commitActiveRoute();
-        set({ config: { ...get().config, isPlaying: true } });
+        set({ config: { ...get().config, isPlaying: true, cameraTrackingEnabled: true } });
       },
 
       pause: () => set({ config: { ...get().config, isPlaying: false } }),

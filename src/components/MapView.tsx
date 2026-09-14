@@ -41,8 +41,6 @@ export function MapView() {
   const pointMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const appliedBearingRef = useRef(0);
   const hasTrackedOnceRef = useRef(false);
-  /** Camera follow is suspended briefly while a freshly built route is being fitted on screen. */
-  const suppressFollowUntilRef = useRef(0);
 
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
 
@@ -129,16 +127,29 @@ export function MapView() {
       (geometry) => {
         const map = mapRef.current;
         if (!map) return;
+        // Draw the new line but leave the camera alone: editing a route should not
+        // yank the view back to the start. Recenter is offered instead (FR-4.3).
         hasTrackedOnceRef.current = false;
         renderRoute(map, geometry?.coordinates ?? null);
-        if (geometry) {
-          suppressFollowUntilRef.current = performance.now() + ROUTE_FIT_DURATION_MS + 120;
-          fitRoute(map, geometry.coordinates);
-        }
       },
     );
     return unsubscribe;
   }, []);
+
+  // An explicit fit request frames the whole route, e.g. after loading from history.
+  useEffect(
+    () =>
+      useSimulationStore.subscribe(
+        (state) => state.fitRequestId,
+        () => {
+          const map = mapRef.current;
+          const geometry = useSimulationStore.getState().geometry;
+          if (!map || !geometry) return;
+          fitRoute(map, geometry.coordinates);
+        },
+      ),
+    [],
+  );
 
   // Tap points -> waypoint markers.
   useEffect(() => {
@@ -188,7 +199,6 @@ export function MapView() {
       vehicleMarkerRef.current.setRotation(telemetry.bearingDegrees);
 
       if (!useSimulationStore.getState().config.cameraTrackingEnabled) return;
-      if (performance.now() < suppressFollowUntilRef.current) return;
 
       const smoothedBearing = hasTrackedOnceRef.current
         ? lerpBearing(appliedBearingRef.current, telemetry.bearingDegrees, BEARING_SMOOTHING)
@@ -219,7 +229,6 @@ export function MapView() {
 
           appliedBearingRef.current = telemetry.bearingDegrees;
           hasTrackedOnceRef.current = true;
-          suppressFollowUntilRef.current = 0;
           map.easeTo({
             center: telemetry.currentCoordinate,
             bearing: telemetry.bearingDegrees,

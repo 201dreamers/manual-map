@@ -74,7 +74,7 @@ The Route Simulation and Tracking Web Application provides an interactive web in
 
 ### 4.4 Map Camera & Heading-Up Rotation
 * **FR-4.1 Heading-Up Map Rotation:** As the marker moves along the route, the map rotates continuously so the vehicle bearing points directly toward the top of the mobile screen.
-* **FR-4.2 Continuous Auto-Centering:** The map camera stays centered on the vehicle marker during automated playback.
+* **FR-4.2 Continuous Auto-Centering:** The map camera stays centered on the vehicle marker during automated playback. Pressing Play engages tracking; building or editing a route never moves the camera, and offers the Recenter control instead.
 * **FR-4.3 Manual Drag Override:** If the user manually drags or zooms the map during playback, camera auto-centering and rotation temporarily disable. A floating "Recenter" button appears to allow the user to re-enable camera tracking.
 
 ### 4.5 Telemetry & History Management
