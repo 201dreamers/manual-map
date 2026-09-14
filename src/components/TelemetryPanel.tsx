@@ -1,11 +1,5 @@
 import type { ReactNode } from 'react';
-import {
-  displaySpeed,
-  formatCoordinate,
-  formatDistanceKm,
-  formatEta,
-  speedLabel,
-} from '../lib/format';
+import { formatCoordinate, formatDistanceKm, formatEta } from '../lib/format';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_SURFACE } from './ui';
 
@@ -27,25 +21,16 @@ function Metric({ label, value }: { label: string; value: string }) {
 /**
  * Telemetry is split into small independent cards that wrap to the next line on
  * narrow screens, leaving as much of the map visible between them as possible.
+ * Current speed is not repeated here: the speed slider already displays it.
  */
 export function TelemetryPanel() {
   const telemetry = useSimulationStore((state) => state.displayTelemetry);
-  const unit = useSimulationStore((state) => state.config.speedUnit);
   const totalDistanceMeters = useSimulationStore(
     (state) => state.activeRoute?.totalDistanceMeters ?? 0,
   );
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start gap-2">
-      <Card>
-        <p className="font-mono text-2xl leading-none text-slate-100">
-          {Math.round(displaySpeed(telemetry.currentSpeedKmh, unit))}
-        </p>
-        <p className="text-[10px] uppercase leading-none tracking-wide text-slate-500">
-          {speedLabel(unit)}
-        </p>
-      </Card>
-
       <Card>
         <Metric label="Remaining" value={`${formatDistanceKm(telemetry.remainingDistanceMeters)} km`} />
         <Metric label="ETA" value={formatEta(telemetry.etaSeconds)} />

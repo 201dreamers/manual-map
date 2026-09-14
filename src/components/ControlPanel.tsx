@@ -85,7 +85,7 @@ export function ControlPanel() {
           aria-label="Simulation speed"
           className="h-10 flex-1 accent-sky-500"
         />
-        <span className="w-16 shrink-0 text-right font-mono text-sm text-slate-100">
+        <span className="w-14 shrink-0 text-right font-mono text-base text-slate-100">
           {Math.round(displaySpeed(config.speedKmh, config.speedUnit))}
         </span>
         <button

@@ -15,9 +15,9 @@ Built against [requirements.md](requirements.md) (V1 scope).
 - Turf.js (`length`, `along`, `bearing`, `simplify`) for route math
 - Web Wake Lock API to keep the screen awake during playback
 
-The map fills the whole viewport; telemetry (as separate speed, remaining/ETA and
+The map fills the whole viewport; telemetry (as separate remaining/ETA and
 distance/position cards), step, playback and speed controls all float over it on a
-shared translucent surface.
+shared translucent surface. Current speed is read off the speed slider.
 
 ## Getting started
 
