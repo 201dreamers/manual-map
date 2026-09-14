@@ -26,8 +26,12 @@ export function ControlPanel() {
       className="pointer-events-none absolute inset-x-3 bottom-0 flex flex-col gap-2.5"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
-      <div className="flex items-end justify-between gap-2">
-        {/* Playback on the left, stepping on the right, so neither thumb crosses the map. */}
+      <div
+        className={`flex items-end justify-between gap-2 ${
+          config.controlsMirrored ? 'flex-row-reverse' : ''
+        }`}
+      >
+        {/* Playback on one side, stepping on the other, so neither thumb crosses the map. */}
         <div className="flex items-center gap-2">
           <button
             type="button"

@@ -36,10 +36,14 @@ export interface SimulationConfig {
   speedUnit: 'kmh' | 'mph';
   isPlaying: boolean;
   cameraTrackingEnabled: boolean;
+  /** Swaps the bottom-left playback cluster with the bottom-right step cluster. */
+  controlsMirrored: boolean;
 }
 
 export interface AppSettings {
   mapboxAccessToken: string | null;
+  /** Mirrors the bottom control clusters for left-handed use. */
+  controlsMirrored: boolean;
 }
 
 /** A stop the user placed on the map, used as input for the Directions API. */

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronsLeft, ChevronsRight, KeyRound, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, X } from 'lucide-react';
 import { validatePublicToken } from '../lib/token';
 import {
   MAX_STEP_METERS,
@@ -70,6 +70,8 @@ export function SettingsModal() {
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
   const stepForwardMeters = useSimulationStore((state) => state.config.stepForwardMeters);
   const stepBackMeters = useSimulationStore((state) => state.config.stepBackMeters);
+  const controlsMirrored = useSimulationStore((state) => state.config.controlsMirrored);
+  const setControlsMirrored = useSimulationStore((state) => state.setControlsMirrored);
   const openSettings = useSimulationStore((state) => state.openSettings);
   const setToken = useSimulationStore((state) => state.setToken);
   const removeToken = useSimulationStore((state) => state.removeToken);
@@ -111,7 +113,49 @@ export function SettingsModal() {
           )}
         </header>
 
-        <section>
+        {!isForced && (
+          <section className="mb-5">
+            <h3 className="mb-1 text-sm font-medium text-slate-200">Controls</h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Mirror swaps the playback and step clusters at the bottom of the map. The speed
+              slider spans the full width either way.
+            </p>
+            <button
+              type="button"
+              onClick={() => setControlsMirrored(!controlsMirrored)}
+              aria-pressed={controlsMirrored}
+              className="flex min-h-[44px] w-full items-center gap-2 rounded-xl bg-slate-800 px-3 text-sm text-slate-200 ring-1 ring-slate-700 active:scale-[0.98]"
+            >
+              <FlipHorizontal2
+                size={16}
+                className={controlsMirrored ? 'text-sky-300' : 'text-slate-400'}
+              />
+              Mirror bottom controls
+              <span
+                className={`ml-auto rounded-lg px-2 py-0.5 text-[11px] font-medium ${
+                  controlsMirrored ? 'bg-sky-500/20 text-sky-200' : 'bg-slate-900 text-slate-500'
+                }`}
+              >
+                {controlsMirrored ? 'On' : 'Off'}
+              </span>
+            </button>
+          </section>
+        )}
+
+        {!isForced && (
+          <section className="mb-5">
+            <h3 className="mb-1 text-sm font-medium text-slate-200">Step distances</h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Forward and backward steps are configured independently.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <StepDistanceField direction={-1} label="Back" value={stepBackMeters} />
+              <StepDistanceField direction={1} label="Forward" value={stepForwardMeters} />
+            </div>
+          </section>
+        )}
+
+        <section className="border-t border-slate-800 pt-4">
           <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-200">
             <KeyRound size={16} /> Mapbox token
           </h3>
@@ -167,18 +211,6 @@ export function SettingsModal() {
           </div>
         </section>
 
-        {!isForced && (
-          <section className="mt-5 border-t border-slate-800 pt-4">
-            <h3 className="mb-1 text-sm font-medium text-slate-200">Step distances</h3>
-            <p className="mb-3 text-xs text-slate-400">
-              Forward and backward steps are configured independently.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <StepDistanceField direction={-1} label="Back" value={stepBackMeters} />
-              <StepDistanceField direction={1} label="Forward" value={stepForwardMeters} />
-            </div>
-          </section>
-        )}
       </div>
     </div>
   );

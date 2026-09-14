@@ -22,7 +22,7 @@ import {
   planStrokeRoute,
   strokeLengthMeters,
 } from '../lib/splice';
-import { routeRepository } from '../lib/storage';
+import { routeRepository, settingsRepository } from '../lib/storage';
 import { clearToken, persistToken, resolveMapboxToken } from '../lib/token';
 import type {
   CoordinateTuple,
@@ -79,6 +79,7 @@ const DEFAULT_CONFIG: SimulationConfig = {
   speedUnit: 'kmh',
   isPlaying: false,
   cameraTrackingEnabled: true,
+  controlsMirrored: false,
 };
 
 export interface SimulationState {
@@ -141,6 +142,7 @@ export interface SimulationState {
   clearSavedRoutes: () => void;
 
   setStepDistance: (direction: StepDirection, meters: number) => void;
+  setControlsMirrored: (mirrored: boolean) => void;
   setSpeed: (kmh: number) => void;
   setSpeedUnit: (unit: SimulationConfig['speedUnit']) => void;
   setCameraTracking: (enabled: boolean) => void;
@@ -455,7 +457,8 @@ export const useSimulationStore = create<SimulationState>()(
       activeRoute: null,
       isRouting: false,
 
-      config: DEFAULT_CONFIG,
+      // The handedness preference is the only config field that survives a reload.
+      config: { ...DEFAULT_CONFIG, controlsMirrored: settingsRepository.read().controlsMirrored },
       telemetry: { ...EMPTY_TELEMETRY, currentSpeedKmh: DEFAULT_CONFIG.speedKmh },
       displayTelemetry: { ...EMPTY_TELEMETRY, currentSpeedKmh: DEFAULT_CONFIG.speedKmh },
 
@@ -704,6 +707,11 @@ export const useSimulationStore = create<SimulationState>()(
         const clamped = Math.min(Math.max(Math.round(meters), MIN_STEP_METERS), MAX_STEP_METERS);
         const key = direction === 1 ? 'stepForwardMeters' : 'stepBackMeters';
         set({ config: { ...get().config, [key]: clamped } });
+      },
+
+      setControlsMirrored: (mirrored) => {
+        settingsRepository.update({ controlsMirrored: mirrored });
+        set({ config: { ...get().config, controlsMirrored: mirrored } });
       },
 
       setSpeed: (kmh) => {

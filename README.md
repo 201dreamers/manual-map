@@ -49,7 +49,8 @@ gitignored - no token ever belongs in a commit.
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
 | Step | Floating back / forward buttons at the bottom right of the map. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
-| Settings | Token plus the forward and backward step distances. |
+| Settings | Control mirroring, the forward and backward step distances, then the Mapbox token. |
+| Mirror | Swaps the bottom-left playback cluster with the bottom-right step cluster for left-handed use; remembered across reloads. |
 | Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button; "Face north" in the menu rotates the map back to north-up. |
 | History | Every calculated route is saved to `localStorage` and can be reloaded, deleted, or cleared from the side drawer. |
 

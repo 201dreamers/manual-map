@@ -3,7 +3,7 @@ import type { AppSettings, RouteMetadata, SavedWaypoint } from '../types/domain'
 const ROUTES_KEY = 'manual-map:routes';
 const SETTINGS_KEY = 'manual-map:settings';
 
-const DEFAULT_SETTINGS: AppSettings = { mapboxAccessToken: null };
+const DEFAULT_SETTINGS: AppSettings = { mapboxAccessToken: null, controlsMirrored: false };
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -89,10 +89,20 @@ export const settingsRepository = {
   read(): AppSettings {
     const parsed = readJson<Partial<AppSettings>>(SETTINGS_KEY, DEFAULT_SETTINGS);
     const token = parsed.mapboxAccessToken;
-    return { mapboxAccessToken: typeof token === 'string' && token ? token : null };
+    return {
+      mapboxAccessToken: typeof token === 'string' && token ? token : null,
+      controlsMirrored: parsed.controlsMirrored === true,
+    };
   },
 
   write(settings: AppSettings): void {
     writeJson(SETTINGS_KEY, settings);
+  },
+
+  /** Merges one field so writing a token never drops the other preferences. */
+  update(patch: Partial<AppSettings>): AppSettings {
+    const next = { ...settingsRepository.read(), ...patch };
+    writeJson(SETTINGS_KEY, next);
+    return next;
   },
 };

@@ -38,9 +38,9 @@ export function resolveMapboxToken(): string | null {
 }
 
 export function persistToken(token: string): void {
-  settingsRepository.write({ mapboxAccessToken: token.trim() });
+  settingsRepository.update({ mapboxAccessToken: token.trim() });
 }
 
 export function clearToken(): void {
-  settingsRepository.write({ mapboxAccessToken: null });
+  settingsRepository.update({ mapboxAccessToken: null });
 }
