@@ -13,6 +13,8 @@ const BEARING_SMOOTHING = 0.18;
 /** Duration of the fit-to-route animation shown right after a route is calculated. */
 const ROUTE_FIT_DURATION_MS = 600;
 
+const SKETCH_SOURCE_ID = 'simulation-sketch';
+const SKETCH_LAYER_ID = 'simulation-sketch-line';
 const ROUTE_SOURCE_ID = 'simulation-route';
 const ROUTE_CASING_LAYER_ID = 'simulation-route-casing';
 const ROUTE_LINE_LAYER_ID = 'simulation-route-line';
@@ -41,6 +43,7 @@ export function MapView() {
   const pointMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const appliedBearingRef = useRef(0);
   const hasTrackedOnceRef = useRef(false);
+  const suppressClickUntilRef = useRef(0);
 
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
 
@@ -78,6 +81,19 @@ export function MapView() {
         paint: { 'line-color': '#38bdf8', 'line-width': 5 },
       });
 
+      map.addSource(SKETCH_SOURCE_ID, { type: 'geojson', data: EMPTY_FEATURE_COLLECTION });
+      map.addLayer({
+        id: SKETCH_LAYER_ID,
+        type: 'line',
+        source: SKETCH_SOURCE_ID,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#fbbf24',
+          'line-width': 4,
+          'line-dasharray': [1.5, 1],
+        },
+      });
+
       renderRoute(map, useSimulationStore.getState().geometry?.coordinates ?? null);
     });
 
@@ -92,6 +108,9 @@ export function MapView() {
     map.on('moveend', publishViewport);
 
     map.on('click', (event) => {
+      if (useSimulationStore.getState().isDrawArmed) return;
+      // A stroke ends with a synthetic click; ignore it so drawing never drops a pin.
+      if (performance.now() < suppressClickUntilRef.current) return;
       void useSimulationStore
         .getState()
         .addRoutePoint([event.lngLat.lng, event.lngLat.lat] as CoordinateTuple);
@@ -135,6 +154,93 @@ export function MapView() {
     );
     return unsubscribe;
   }, []);
+
+  // AC-401: while the pen is armed the map stops panning and the drag draws instead.
+  useEffect(() => {
+    const applyArmed = (armed: boolean) => {
+      const map = mapRef.current;
+      if (!map) return;
+
+      const gestures = [
+        map.dragPan,
+        map.dragRotate,
+        map.touchZoomRotate,
+        map.scrollZoom,
+        map.doubleClickZoom,
+        map.keyboard,
+      ];
+      for (const gesture of gestures) {
+        if (armed) gesture.disable();
+        else gesture.enable();
+      }
+
+      const canvas = map.getCanvasContainer();
+      canvas.style.cursor = armed ? 'crosshair' : '';
+      if (!armed) renderSketch(map, null);
+    };
+
+    applyArmed(useSimulationStore.getState().isDrawArmed);
+    return useSimulationStore.subscribe((state) => state.isDrawArmed, applyArmed);
+  }, []);
+
+  // Stroke capture. Bound once; it only does work while the pen is armed.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const canvas = map.getCanvasContainer();
+    let stroke: CoordinateTuple[] | null = null;
+    let pointerId: number | null = null;
+
+    const toCoordinate = (event: PointerEvent): CoordinateTuple => {
+      const rect = canvas.getBoundingClientRect();
+      const point = map.unproject([event.clientX - rect.left, event.clientY - rect.top]);
+      return [point.lng, point.lat];
+    };
+
+    const finish = () => {
+      if (!stroke) return;
+      const drawn = stroke;
+      stroke = null;
+      pointerId = null;
+      renderSketch(map, null);
+      suppressClickUntilRef.current = performance.now() + 400;
+      void useSimulationStore.getState().applyStroke(drawn);
+    };
+
+    const handleDown = (event: PointerEvent) => {
+      if (!useSimulationStore.getState().isDrawArmed || pointerId !== null) return;
+      event.preventDefault();
+      pointerId = event.pointerId;
+      canvas.setPointerCapture(event.pointerId);
+      stroke = [toCoordinate(event)];
+    };
+
+    const handleMove = (event: PointerEvent) => {
+      if (!stroke || event.pointerId !== pointerId) return;
+      event.preventDefault();
+      stroke.push(toCoordinate(event));
+      if (stroke.length > 1) renderSketch(map, stroke);
+    };
+
+    const handleUp = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      event.preventDefault();
+      finish();
+    };
+
+    canvas.addEventListener('pointerdown', handleDown);
+    canvas.addEventListener('pointermove', handleMove);
+    canvas.addEventListener('pointerup', handleUp);
+    canvas.addEventListener('pointercancel', handleUp);
+
+    return () => {
+      canvas.removeEventListener('pointerdown', handleDown);
+      canvas.removeEventListener('pointermove', handleMove);
+      canvas.removeEventListener('pointerup', handleUp);
+      canvas.removeEventListener('pointercancel', handleUp);
+    };
+  }, [mapboxToken]);
 
   // An explicit fit request frames the whole route, e.g. after loading from history.
   useEffect(
@@ -241,6 +347,17 @@ export function MapView() {
   );
 
   return <div ref={containerRef} className="absolute inset-0" />;
+}
+
+function renderSketch(map: mapboxgl.Map, coordinates: CoordinateTuple[] | null): void {
+  const source = map.getSource(SKETCH_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+  if (!source) return;
+
+  source.setData(
+    coordinates && coordinates.length > 1
+      ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }
+      : EMPTY_FEATURE_COLLECTION,
+  );
 }
 
 function renderRoute(map: mapboxgl.Map, coordinates: CoordinateTuple[] | null): void {

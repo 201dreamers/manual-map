@@ -315,7 +315,7 @@ Capped at 6 samples. If `keptVias > 19`, the splice is refused with an explicit 
 
 | Situation | Expected |
 |---|---|
-| Stroke shorter than ~20 px (a tap) | Ignore silently, disarm pen, route untouched |
+| Stroke shorter than 25 m of ground distance (a tap) | Ignore silently, disarm pen, route untouched |
 | Stroke of fewer than 2 distinct points | Ignore silently |
 | Splice would exceed 25 coordinates | Refuse with explicit message; route untouched |
 | Directions returns `NoRoute` after a splice | Restore previous route, show existing FR-1.3 message |
@@ -349,6 +349,12 @@ npm run lint           # oxlint
 ```
 
 Existing suites that must stay green: geo math (14), store logic (26), token validation (8), step defaults (11).
+
+## 17a. Implementation Notes (Phase 4)
+
+* Stroke samples are fed to the Directions API as via-points (A-1 confirmed). Map Matching was not used: its `radiuses` cap of 50 m is below the accuracy of a finger stroke.
+* A splice returns bare coordinates, so surviving stops are matched back to the originals to keep their searched labels. The pinned start and end are matched **by position**, not proximity - a stroke whose ends project onto the route end would otherwise steal the destination's identity.
+* The tap threshold is metric (25 m of ground distance) rather than pixels, so it behaves consistently at every zoom level.
 
 ## 18. Known Risks
 

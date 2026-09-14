@@ -14,6 +14,14 @@ import {
   coordinateAtDistance,
   type RouteGeometry,
 } from '../lib/geo';
+import {
+  metersBetween,
+  MIN_STROKE_LENGTH_METERS,
+  MIN_WAYPOINT_SEPARATION_METERS,
+  planSplice,
+  planStrokeRoute,
+  strokeLengthMeters,
+} from '../lib/splice';
 import { routeRepository } from '../lib/storage';
 import { clearToken, persistToken, resolveMapboxToken } from '../lib/token';
 import type {
@@ -78,6 +86,8 @@ export interface SimulationState {
   isSettingsOpen: boolean;
   isHistoryOpen: boolean;
   isPlanOpen: boolean;
+  /** True while the pen is armed and the next drag draws instead of panning. */
+  isDrawArmed: boolean;
 
   searchQuery: string;
   searchResults: GeocodeResult[];
@@ -109,6 +119,8 @@ export interface SimulationState {
   openSettings: (open: boolean) => void;
   openHistory: (open: boolean) => void;
   openPlan: (open: boolean) => void;
+  setDrawArmed: (armed: boolean) => void;
+  applyStroke: (stroke: CoordinateTuple[]) => Promise<void>;
   setViewport: (viewport: BoundingBox) => void;
   setSearchQuery: (query: string) => void;
   clearSearch: () => void;
@@ -169,6 +181,46 @@ function buildTelemetry(
     currentCoordinate: coordinateAtDistance(geometry, current),
     bearingDegrees: bearingAtDistance(geometry, current),
   };
+}
+
+/**
+ * A splice returns bare coordinates, so stops that survived it are matched back to
+ * the originals. Without this a searched "Boryspil Airport" would come back as an
+ * anonymous dropped pin.
+ */
+function adoptExistingStops(
+  coordinates: CoordinateTuple[],
+  previous: RoutePoint[],
+): RoutePoint[] {
+  const adopted: RoutePoint[] = coordinates.map((coordinate) => ({ id: createId(), coordinate }));
+  if (previous.length === 0 || coordinates.length === 0) return adopted;
+
+  const lastIndex = coordinates.length - 1;
+  const claim = (index: number, point: RoutePoint) => {
+    if (metersBetween(point.coordinate, coordinates[index]) < MIN_WAYPOINT_SEPARATION_METERS) {
+      adopted[index] = { ...point, coordinate: coordinates[index] };
+    }
+  };
+
+  // The start and end are pinned by the splice, so they are matched by position.
+  // Matching them by proximity instead lets a stroke that projects onto the route
+  // end steal the destination's identity.
+  claim(0, previous[0]);
+  if (lastIndex > 0) claim(lastIndex, previous[previous.length - 1]);
+
+  // Surviving vias are matched by proximity among the remaining originals only.
+  const unclaimed = previous.slice(1, -1);
+  for (let index = 1; index < lastIndex; index++) {
+    const match = unclaimed.findIndex(
+      (point) =>
+        metersBetween(point.coordinate, coordinates[index]) < MIN_WAYPOINT_SEPARATION_METERS,
+    );
+    if (match === -1) continue;
+    const [claimed] = unclaimed.splice(match, 1);
+    adopted[index] = { ...claimed, coordinate: coordinates[index] };
+  }
+
+  return adopted;
 }
 
 function pointLabel(point: RoutePoint): string {
@@ -385,6 +437,7 @@ export const useSimulationStore = create<SimulationState>()(
       isSettingsOpen: false,
       isHistoryOpen: false,
       isPlanOpen: false,
+      isDrawArmed: false,
 
       searchQuery: '',
       searchResults: [],
@@ -420,6 +473,31 @@ export const useSimulationStore = create<SimulationState>()(
       openHistory: (open) => set({ isHistoryOpen: open }),
 
       openPlan: (open) => set({ isPlanOpen: open }),
+
+      setDrawArmed: (armed) => set({ isDrawArmed: armed }),
+
+      /**
+       * D-1: a stroke reshapes the span it covers, or builds a fresh route when the
+       * map is empty. Short strokes are taps and are ignored without complaint.
+       */
+      applyStroke: async (stroke) => {
+        set({ isDrawArmed: false });
+        if (strokeLengthMeters(stroke) < MIN_STROKE_LENGTH_METERS) return;
+
+        const previous = get().routePoints;
+        const geometry = get().geometry;
+        const outcome =
+          geometry && previous.length >= 2
+            ? planSplice(geometry, previous.map((point) => point.coordinate), stroke)
+            : planStrokeRoute(stroke);
+
+        if (!outcome.ok) {
+          get().pushToast('error', outcome.reason);
+          return;
+        }
+
+        await recalculateRoute(adoptExistingStops(outcome.waypoints, previous), previous);
+      },
 
       setViewport: (viewport) => set({ viewport }),
 
