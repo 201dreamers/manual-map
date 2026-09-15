@@ -363,3 +363,161 @@ Existing suites that must stay green: geo math (14), store logic (26), token val
 * **The 25-coordinate ceiling** is the sharpest edge: a heavily-via'd route plus a stroke hits it. AC-405 pins the behavior.
 * **AC-305 is a known current failure**, not hypothetical - search relevance needs real tuning work.
 * **Splice on a self-intersecting route** (a loop crossing itself) can project entry/exit ambiguously. Not covered in V2.
+
+---
+
+# Part III - Version 3: Driving Ergonomics, Route Lock & Look-Ahead
+
+**Status:** Approved specification (planning session). Parts I and II above describe the shipped V1 and V2 application.
+
+**Goal:** Make the app usable one-thumb while driving - bigger targets, no accidental point adds, the cursor repositionable by map tap, and the road ahead visible without losing camera lock.
+
+## 19. Locked Decisions
+
+| # | Decision |
+|---|---|
+| D-1 | Baseline controls grow to ~72px. **Lock is the mode switch**: locked means the 88px stripped Drive layout, unlocked means the normal layout. One concept, not two. |
+| D-2 | Lock engages automatically on Play, and by manual toggle at any time. |
+| D-3 | Lock blocks map-tap point adds, draw-line mode, and Undo / Reverse / Clear. It does **not** block Plan drawer edits (reorder, rename, delete). |
+| D-4 | While locked, a map tap within 44px on screen of the route line moves the cursor to that point. A tap further away is ignored with a toast. |
+| D-5 | Moving the cursor during playback keeps playing from the new point. |
+| D-6 **[revised]** | The speed slider stays visible in the Drive layout. Reset-to-start and the status pill hide. **Distance and ETA stay visible**: they are the numbers the drive is about, and the status pill only ever carries planning hints. |
+| D-7 | Zoom out gets both: large +/- buttons in the cluster, and pinch that no longer breaks camera tracking. |
+| D-8 | The menu button stays visible while locked, with its route-mutating items disabled. Hiding it would strand Settings and History behind an unlock. |
+| D-9 **[revised]** | The zoom +/- pair is a vertical stack in the **top-left corner**, under the menu. It does not mirror: `controlsMirrored` swaps the two bottom thumb clusters and the zoom pair is no longer one of them. It hides while the menu is open, which drops into the same corner. |
+| D-10 | The lock lives in the **top action row**, beside the stop count, at the 48px row size rather than a Drive target. A top-corner control cannot be 88px without eating the map. |
+| D-11 | Recentring is floated in the empty middle of the button row, level with play and above the speed slider. The thumb columns sit at the edges, so it costs no layout shift when it appears. |
+| D-12 | A tapped move **glides** on the step easing rather than teleporting. Unlike a step, it never pauses playback. |
+| D-13 | The followed vehicle sits at 0.75 of container height, with at least 200px kept below it. On a short screen the clearance wins and the anchor gives way, or the marker would sit behind the floating controls. |
+| D-14 | A lock cannot outlive the route it guards: dropping below two stops releases it, and a standing lock is never disabled. |
+
+**Accepted consequence of D-1 + D-2:** because Lock is the layout switch and Play auto-locks, pressing Play always enters the stripped Drive layout. A route cannot be locked while keeping the planning layout. This was chosen deliberately in favour of a single concept.
+
+## 20. Constraints
+
+* No control may occupy a solid strip of the viewport (section 5 remains binding). Everything floats on the shared `GLASS_SURFACE`.
+* `min-h-[44px]` stays the floor, not the goal: normal targets are ~72px, Drive targets 88px.
+* Safe-area insets, top and bottom, stay respected.
+* Zero new dependencies. Projection reuses turf `nearestPointOnLine`, already imported by `src/lib/splice.ts`.
+* TypeScript strict; `tsc -b` and `oxlint` must stay clean.
+* No browser or device exists in the build environment, so every ergonomic criterion below is marked human-verify and must be reported as unverified rather than claimed.
+
+## 21. Glossary
+
+* **Locked** - the route is immutable from the map, the Drive layout is active, and map taps move the cursor.
+* **Cursor** - the vehicle marker's position along the route, i.e. `telemetry.currentDistanceMeters`.
+* **Drive layout** - 88px controls; telemetry, reset and status pill hidden; speed slider kept.
+
+## 22. V3 Scope
+
+### 22.1 In Scope
+
+* `isRouteLocked` state, held for the session only.
+* Lock gating inside `addRoutePoint`, `setDrawArmed`, `undo`, `reverseRoute` and `clearRoute`.
+* A lock button in the bottom cluster: 88px while locked, 72px while not.
+* Two layouts driven off `isRouteLocked` in `ControlPanel` and `TopBar`.
+* `projectOntoRoute()` promoted into `src/lib/geo.ts` and shared with the private `projectOnto` in `splice.ts`.
+* Tap-to-move-cursor with a screen-space proximity gate, wired to the existing `applyDistance()`.
+* Zoom +/- buttons; `zoomstart` removed from the tracking-kill list; `touchZoomRotate.disableRotation()` while tracking.
+
+### 22.2 Out of Scope (deferred)
+
+* Voice control and hardware-button control.
+* Persisting the lock state across app restarts.
+* Haptic feedback on lock and unlock.
+* Any Android-specific work.
+* Auto-unlock heuristics, such as unlocking on arrival at the destination.
+
+## 23. Acceptance Criteria
+
+### Lock core
+
+* **AC-501 Lock blocks map-tap adds.** Route with two or more stops, unlocked. Press Lock, then tap empty map away from the route. Expected: the stop count is unchanged and no Directions request is fired. Must not: swallow the tap without feedback. Verify: store-level automated test plus a human map check. Required.
+* **AC-502 Play auto-locks.** Unlocked route, cursor at 0. Press Play. Expected: `isRouteLocked` becomes true and the Drive layout renders in the same frame. Verify: automated store test. Required.
+* **AC-503 Locked gates the mutating menu items.** Locked. Open the menu. Expected: Undo, Reverse route and Draw line are disabled, while Settings, History and Face north stay usable. Must not: disable Plan drawer reorder or delete. Verify: automated assertion on `disabled` plus a human check. Required.
+
+### Drive layout
+
+* **AC-504 Drive layout target sizes [revised].** Locked, route loaded. Expected: play/pause and both step buttons each measure at least 88px in both axes; reset-to-start and the status pill are absent; the speed row, the distance/ETA card, the menu and the stop list are present. The lock is excluded from the 88px rule by D-10, the telemetry from the hiding rule by D-6. Verify: automated class assertion against a rendered tree; the feel is human-judgment. Required.
+* **AC-505 Normal layout target sizes [revised].** Unlocked. Expected: play and both step buttons each measure at least 72px; telemetry, reset and the status pill are present; the lock is offered from the top row. Verify: as AC-504. Required.
+* **AC-506 Recenter is laid out, not offset [revised].** Camera panned by hand. Expected: Recenter appears centred above the speed slider, at least 56px tall, positioned by the control panel rather than by any bottom offset, and its arrival leaves the thumb cluster byte-identical. Constraint that forced the change: a hardcoded offset had to be re-derived every time the cluster changed height, and it changed four times. Removing the constant removes the class of bug. Verify: rendered-tree comparison with and without it. Required.
+
+### Tap-to-move
+
+* **AC-507 Tap near the route moves the cursor.** Locked, route loaded, cursor at 0 m. Tap the drawn route line near its midpoint. Expected: the vehicle marker jumps to that point, the telemetry distance matches the projected value within 25 m, and camera tracking stays engaged. Must not: add a stop or alter the geometry. Verify: automated tests for `projectOntoRoute` and the store; marker behaviour human-verify. Required.
+* **AC-508 Tap far from the route is refused.** Locked. Tap empty map more than 44px from the line. Expected: the cursor is unchanged, one toast appears, and no stop is added. Verify: automated store test plus a human check. Required.
+* **AC-509 Moving the cursor during playback keeps playing.** Locked and playing at 60 km/h. Tap ahead on the route. Expected: the cursor jumps, `isPlaying` stays true, and motion resumes from the new distance at the same speed. Verify: automated store test. Required.
+
+### Look-ahead zoom
+
+* **AC-510 Zoom buttons keep the camera centred [revised].** Tracking on, zoom 16, **whether playing or paused**. Press minus three times. Expected: zoom drops one level per press, the vehicle holds its anchor, tracking stays enabled and heading-up rotation continues. The paused case is called out because it failed differently from the playing one; see section 25a. Verify: automated easing and store tests plus source guards; visual smoothness human-verify. Required.
+* **AC-511 Pinch no longer drops tracking.** Tracking on. Pinch to zoom out. Expected: the zoom changes, tracking stays enabled, the map does not rotate away from heading-up, and the new zoom persists across later tracking frames. Must not: leave rotation enabled for the pinch gesture while tracking. Verify: human-verify on device, since no touch emulation exists here, plus an automated assertion that `zoomstart` is not bound to the tracking-kill handler. Required.
+* **AC-512 Drag still drops tracking.** Tracking on. Drag the map. Expected: tracking disables and Recenter appears, exactly as FR-4.3 specifies today. Verify: existing behaviour must not regress; human check. Required.
+
+## 24. Failure Behavior
+
+| Situation | Expected |
+|-----------|----------|
+| Tap to move the cursor with no route loaded | Ignore; the lock is not offered without a route |
+| Tap more than 44px from the route while locked | Ignore, plus an info toast: "Tap the route to move the marker" |
+| Lock pressed with fewer than two stops | Lock button disabled; there is nothing to protect |
+| Play pressed while already locked | No change to the lock; playback starts normally |
+| Unlock pressed while playing | Playback continues; the layout returns to normal; edits are re-enabled |
+| Zoom minus at the Mapbox minimum zoom | Clamp silently, no toast |
+| `nearestPointOnLine` returns no `location` | Treat as a miss, exactly like a far tap. Never fall back to 0 m, which would teleport the cursor to the start |
+| Draw arm attempted while locked | Menu item disabled; a programmatic call is a no-op |
+| Route falls below two stops while locked | The lock is released by the same write that shortens the route (D-14) |
+| Lock pressed while the route is empty | Disabled, unless the lock is already on, which must always be releasable |
+| Menu opened over the zoom stack | The zoom stack hides for as long as the menu is open |
+| Container too short for the vehicle anchor | Clearance wins over the anchor; below twice the clearance it falls back to centre |
+
+## 25. Phases
+
+1. **Lock core** - state, gating, auto-lock on Play, lock button. Everything else gates on it. AC-501..503.
+2. **Drive layout** - size tokens, conditional layout, Recenter placement. AC-504..506.
+3. **Tap-to-move** - `projectOntoRoute` into `geo.ts`, the screen-space gate in `MapView`, wiring to `applyDistance`. AC-507..509.
+4. **Look-ahead zoom** - buttons, `zoomstart` unbinding, rotation suppression, zoom ownership. AC-510..512.
+
+Phase 1 must be first. Phase 4 is independent of 1 to 3 and may run at any point.
+
+## 25a. Implementation Notes
+
+* **The tap threshold here is screen-space (44px), deliberately diverging from section 17a**, where the draw-tap threshold is metric (25 m) for zoom consistency. The reason for the difference: a finger is a fixed physical size, so a miss threshold aimed at finger accuracy should be too, and a 25 m gate is sub-pixel and therefore unhittable at zoom 12. The metric threshold in section 17a stands unchanged for draw-to-splice.
+* The projection itself stays metric: the tap is snapped with `nearestPointOnLine`, and only the accept/reject test is measured in pixels via `map.project()`.
+* **That last note was wrong, and the code proves it.** `jumpTo` begins with `this._stop()`
+  (`mapbox-gl-dev.js:96135`), so a tracking frame cancels any running animation. A zoom
+  `easeTo` was being killed about 16 ms in while playing. The tracking loop therefore owns the
+  zoom: a request sets a target and each frame eases towards it, the same shape as the bearing
+  smoothing. A pinch writes straight into that target, or the next frame would drag the zoom back.
+* The ease also runs unconditionally. Tracking frames are driven by telemetry, which is static
+  while paused, so a centred-but-stopped route gets no frames at all and the ease is the only
+  thing that applies the zoom. While tracking it passes the vehicle coordinate and the anchor
+  padding, because a zoom-only ease zooms about the map centre and the marker is not there.
+* The vehicle anchor is applied as `padding` with `retainPadding: false`. Mapbox clones the
+  transform and calls `setLocationAtPoint` (`mapbox-gl-dev.js:96156`), so the anchor shifts one
+  camera move without sticking to the map and skewing fit-to-route afterwards. `jumpTo` cannot
+  take an `offset`: that lives on `AnimationOptions`, which only `easeTo` and `flyTo` accept.
+* The tap threshold is screen-space (44px) while the draw threshold in section 17a stays metric.
+  A finger is a fixed physical size; a 25 m gate is sub-pixel at zoom 12.
+* The lock is an invariant, not a flag: every write that drops `routePoints` below two clears it.
+  Guarding only the setter left a route that could be emptied from the drawer while locked, which
+  stranded the UI in a Drive layout whose lock button was disabled.
+
+## 26. Verify
+
+```bash
+npm run build          # tsc -b strict + vite build
+npm run lint           # oxlint
+npm test               # headless suites
+```
+
+Existing suites that must stay green, in particular the marker-stability guard in `tests/geo.test.ts` (0 direction flips, max 0.051 deg/frame): phase 4 touches the camera path that guard protects.
+
+Human-verify only, to be reported as unverified rather than claimed: AC-504 and AC-505 feel, AC-506 placement, AC-511 pinch, AC-512 drag, the 0.75 anchor in motion, and all Android behaviour.
+
+## 27. Known Risks
+
+* **Pinch and heading-up rotation compete.** Touch pinch arrives through `touchZoomRotate`, the same handler that rotates. Suppressing only its rotation while tracking is the plan, and it cannot be verified headlessly - AC-511 is on-device only.
+* **Lock doubling as the layout switch** means a single flag drives both behavior and presentation. If the two ever need to separate, D-1 is the decision to revisit.
+* **The vehicle anchor and the cluster height are tuned against each other.** The 200px clearance is a guess at the cluster's real height plus a margin; growing the cluster again could put the marker behind it on a short screen.
+* **A tap that lands where the route crosses itself** projects ambiguously, the same unresolved case as the V2 splice note. The cursor may jump to the wrong branch.
