@@ -104,8 +104,15 @@ export interface SimulationState {
   isSettingsOpen: boolean;
   isHistoryOpen: boolean;
   isPlanOpen: boolean;
+  /** The top-left action menu. Shared so the controls beneath it can stand down. */
+  isMenuOpen: boolean;
   /** True while the pen is armed and the next drag draws instead of panning. */
   isDrawArmed: boolean;
+  /**
+   * D-3: while locked the route cannot be edited from the map, so a stray thumb
+   * cannot drop a stop mid-drive. Session-only; never persisted.
+   */
+  isRouteLocked: boolean;
 
   searchQuery: string;
   searchResults: GeocodeResult[];
@@ -117,6 +124,11 @@ export interface SimulationState {
   fitRequestId: number;
   /** Incremented to ask the map to rotate back to north. */
   northRequestId: number;
+  /**
+   * Asks the map to step its zoom while staying on the vehicle. Carries a direction,
+   * so unlike the fit and north requests the id alone is not enough.
+   */
+  zoomRequest: { id: number; delta: number };
 
   routePoints: RoutePoint[];
   geometry: RouteGeometry | null;
@@ -139,8 +151,11 @@ export interface SimulationState {
   openSettings: (open: boolean) => void;
   openHistory: (open: boolean) => void;
   openPlan: (open: boolean) => void;
+  openMenu: (open: boolean) => void;
   setDrawArmed: (armed: boolean) => void;
+  setRouteLocked: (locked: boolean) => void;
   resetNorth: () => void;
+  requestZoom: (delta: number) => void;
   applyStroke: (stroke: CoordinateTuple[]) => Promise<void>;
   setViewport: (viewport: BoundingBox) => void;
   setSearchQuery: (query: string) => void;
@@ -170,6 +185,7 @@ export interface SimulationState {
   togglePlay: () => void;
   resetToStart: () => void;
   step: (direction: StepDirection) => void;
+  moveCursorTo: (distanceMeters: number) => void;
 
   /** Advances the simulation by a frame delta. Called from the rAF loop only. */
   advance: (deltaSeconds: number) => void;
@@ -319,7 +335,7 @@ export const useSimulationStore = create<SimulationState>()(
       const snapshot = presetSnapshot ?? captureSnapshot();
       const token = get().mapboxToken;
       if (!token) {
-        set({ routePoints: previous });
+        set({ routePoints: previous, ...lockStateFor(previous) });
         get().pushToast('error', 'Add a Mapbox public token in Settings first.');
         return;
       }
@@ -327,6 +343,7 @@ export const useSimulationStore = create<SimulationState>()(
       if (points.length < 2) {
         set({
           routePoints: points,
+          ...lockStateFor(points),
           geometry: null,
           activeRoute: null,
           telemetry: { ...EMPTY_TELEMETRY, currentSpeedKmh: get().config.speedKmh },
@@ -380,7 +397,7 @@ export const useSimulationStore = create<SimulationState>()(
         if (error instanceof DOMException && error.name === 'AbortError') return;
         const message =
           error instanceof DirectionsError ? error.message : 'Route calculation failed.';
-        set({ routePoints: previous, isRouting: false });
+        set({ routePoints: previous, ...lockStateFor(previous), isRouting: false });
         get().pushToast('error', message);
       } finally {
         if (pendingRouteRequest === controller) pendingRouteRequest = null;
@@ -425,13 +442,24 @@ export const useSimulationStore = create<SimulationState>()(
      * Applies a stop-list edit immediately so the drawer stays responsive, then
      * recalculates once the user stops editing.
      */
+    /**
+     * The lock guards a route; below two stops there is no route left to guard. The
+     * lock button is disabled at that point, so a lock left standing here would be
+     * impossible to release and would strand the UI in the Drive layout.
+     */
+    const lockStateFor = (points: RoutePoint[]) => (points.length < 2 ? { isRouteLocked: false } : {});
+
     const scheduleRecalculate = (points: RoutePoint[]) => {
       if (!pendingEdit) {
         pendingEdit = { previous: get().routePoints, snapshot: captureSnapshot() };
       }
 
       // Reordering mid-drive would leave the marker at a meaningless offset.
-      set({ routePoints: points, config: { ...get().config, isPlaying: false } });
+      set({
+        routePoints: points,
+        ...lockStateFor(points),
+        config: { ...get().config, isPlaying: false },
+      });
 
       if (recalcTimer) clearTimeout(recalcTimer);
       recalcTimer = setTimeout(() => {
@@ -449,6 +477,17 @@ export const useSimulationStore = create<SimulationState>()(
       if (!activeRoute) return;
       const committed: RouteMetadata = { ...activeRoute, updatedAt: new Date().toISOString() };
       set({ activeRoute: committed, savedRoutes: routeRepository.save(committed) });
+    };
+
+    /**
+     * D-3: the lock exists to stop accidental edits, so every route mutation runs
+     * through here. It reports rather than swallowing, otherwise a refused tap
+     * looks identical to a broken one.
+     */
+    const refuseWhenLocked = (): boolean => {
+      if (!get().isRouteLocked) return false;
+      get().pushToast('info', 'Route is locked. Unlock to edit it.');
+      return true;
     };
 
     const applyDistance = (distanceMeters: number, options: { pauseAtEnd?: boolean } = {}) => {
@@ -473,7 +512,9 @@ export const useSimulationStore = create<SimulationState>()(
       isSettingsOpen: false,
       isHistoryOpen: false,
       isPlanOpen: false,
+      isMenuOpen: false,
       isDrawArmed: false,
+      isRouteLocked: false,
 
       searchQuery: '',
       searchResults: [],
@@ -482,6 +523,7 @@ export const useSimulationStore = create<SimulationState>()(
       viewport: null,
       fitRequestId: 0,
       northRequestId: 0,
+      zoomRequest: { id: 0, delta: 0 },
 
       routePoints: [],
       geometry: null,
@@ -512,7 +554,25 @@ export const useSimulationStore = create<SimulationState>()(
 
       openPlan: (open) => set({ isPlanOpen: open }),
 
-      setDrawArmed: (armed) => set({ isDrawArmed: armed }),
+      openMenu: (open) => set({ isMenuOpen: open }),
+
+      setDrawArmed: (armed) => {
+        if (armed && refuseWhenLocked()) return;
+        set({ isDrawArmed: armed });
+      },
+
+      /** A route needs both ends before there is anything worth protecting. */
+      setRouteLocked: (locked) => {
+        if (locked && get().routePoints.length < 2) return;
+        set({ isRouteLocked: locked });
+      },
+
+      /**
+       * D-7: steps the zoom without touching camera tracking, so the road ahead can
+       * be widened mid-drive. The map clamps the result; the store only asks.
+       */
+      requestZoom: (delta) =>
+        set({ zoomRequest: { id: get().zoomRequest.id + 1, delta } }),
 
       /**
        * Rotates the map back to north. Heading-up tracking is released at the same
@@ -529,6 +589,7 @@ export const useSimulationStore = create<SimulationState>()(
        * map is empty. Short strokes are taps and are ignored without complaint.
        */
       applyStroke: async (stroke) => {
+        if (refuseWhenLocked()) return;
         set({ isDrawArmed: false });
         if (strokeLengthMeters(stroke) < MIN_STROKE_LENGTH_METERS) return;
 
@@ -605,6 +666,7 @@ export const useSimulationStore = create<SimulationState>()(
       },
 
       addRoutePoint: async (coordinate) => {
+        if (refuseWhenLocked()) return;
         const previous = get().routePoints;
         if (previous.length >= MAX_ROUTE_POINTS) {
           get().pushToast('error', `A route can use at most ${MAX_ROUTE_POINTS} points.`);
@@ -615,6 +677,7 @@ export const useSimulationStore = create<SimulationState>()(
       },
 
       undo: () => {
+        if (refuseWhenLocked()) return;
         const stack = get().undoStack;
         if (stack.length === 0) return;
 
@@ -631,6 +694,7 @@ export const useSimulationStore = create<SimulationState>()(
         set({
           undoStack: stack.slice(0, -1),
           routePoints: snapshot.routePoints,
+          ...lockStateFor(snapshot.routePoints),
           geometry: snapshot.geometry,
           activeRoute: snapshot.activeRoute,
           isRouting: false,
@@ -660,6 +724,7 @@ export const useSimulationStore = create<SimulationState>()(
       },
 
       clearRoute: () => {
+        if (refuseWhenLocked()) return;
         const snapshot = captureSnapshot();
         cancelPendingEdit();
         pendingRouteRequest?.abort();
@@ -667,6 +732,7 @@ export const useSimulationStore = create<SimulationState>()(
         const telemetry = { ...EMPTY_TELEMETRY, currentSpeedKmh: get().config.speedKmh };
         set({
           routePoints: [],
+          isRouteLocked: false,
           geometry: null,
           activeRoute: null,
           isRouting: false,
@@ -679,6 +745,7 @@ export const useSimulationStore = create<SimulationState>()(
 
       // FR-1.4: swap start and destination, recalculate geometry, reset to 0 m.
       reverseRoute: async () => {
+        if (refuseWhenLocked()) return;
         const previous = get().routePoints;
         if (previous.length < 2) {
           get().pushToast('info', 'Add a start and a destination point first.');
@@ -717,6 +784,7 @@ export const useSimulationStore = create<SimulationState>()(
             telemetry,
             displayTelemetry: telemetry,
             isHistoryOpen: false,
+            isRouteLocked: false,
             fitRequestId: get().fitRequestId + 1,
             config: { ...get().config, isPlaying: false, cameraTrackingEnabled: false },
           });
@@ -781,7 +849,11 @@ export const useSimulationStore = create<SimulationState>()(
         }
         commitActiveRoute();
         stepAnimation = null;
-        set({ config: { ...get().config, isPlaying: true, cameraTrackingEnabled: true } });
+        // D-2: driving is when the accidental taps happen, so Play locks the route.
+        set({
+          isRouteLocked: true,
+          config: { ...get().config, isPlaying: true, cameraTrackingEnabled: true },
+        });
       },
 
       pause: () => {
@@ -790,6 +862,36 @@ export const useSimulationStore = create<SimulationState>()(
       },
 
       togglePlay: () => (get().config.isPlaying ? get().pause() : get().play()),
+
+      /**
+       * D-4: a tap near the route while locked repositions the marker. The move glides
+       * on the same easing as a step rather than teleporting, so the eye can follow
+       * where the marker went. D-5 leaves playback running; unlike `step`, this never
+       * pauses. Any glide already in flight is replaced.
+       */
+      moveCursorTo: (distanceMeters) => {
+        const { geometry, telemetry, config } = get();
+        if (!geometry) return;
+
+        const target = clampDistance(geometry, distanceMeters);
+        if (target === telemetry.currentDistanceMeters) {
+          stepAnimation = null;
+          applyDistance(target);
+          get().syncDisplayTelemetry();
+          return;
+        }
+
+        stepAnimation = {
+          fromMeters: telemetry.currentDistanceMeters,
+          toMeters: target,
+          elapsedMs: 0,
+          durationMs:
+            target > telemetry.currentDistanceMeters
+              ? config.stepForwardAnimationMs
+              : config.stepBackAnimationMs,
+          geometry,
+        };
+      },
 
       resetToStart: () => {
         stepAnimation = null;

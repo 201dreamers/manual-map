@@ -1,4 +1,4 @@
-import { ListOrdered, Loader2 } from 'lucide-react';
+import { ListOrdered, Loader2, Lock, Unlock } from 'lucide-react';
 import { MenuButton } from './MenuButton';
 import { TelemetryPanel } from './TelemetryPanel';
 import { useSimulationStore } from '../store/simulationStore';
@@ -17,6 +17,8 @@ export function TopBar() {
   const pointCount = useSimulationStore((state) => state.routePoints.length);
   const isRouting = useSimulationStore((state) => state.isRouting);
   const isDrawArmed = useSimulationStore((state) => state.isDrawArmed);
+  const isRouteLocked = useSimulationStore((state) => state.isRouteLocked);
+  const setRouteLocked = useSimulationStore((state) => state.setRouteLocked);
 
   const status = isRouting
     ? 'Calculating route'
@@ -31,10 +33,24 @@ export function TopBar() {
       <header className="flex w-full items-start justify-between gap-2">
         <MenuButton />
 
-        {/* Centred telemetry; min-w-0 lets it shrink instead of pushing the buttons out. */}
+        {/* Centred telemetry; min-w-0 lets it shrink instead of pushing the buttons out.
+            Distance and ETA matter most while driving, so the Drive layout keeps them. */}
         <div className="flex min-w-0 flex-1 justify-center">
           <TelemetryPanel />
         </div>
+
+        {/* D-3: the lock guards the route against stray taps while driving. */}
+        <button
+          type="button"
+          className={`${BUTTON_CLASS} ${isRouteLocked ? 'text-amber-300 ring-amber-400' : ''}`}
+          onClick={() => setRouteLocked(!isRouteLocked)}
+          // Never disabled while locked: a lock you cannot release is a trap.
+          disabled={!isRouteLocked && pointCount < 2}
+          aria-pressed={isRouteLocked}
+          aria-label={isRouteLocked ? 'Unlock route' : 'Lock route'}
+        >
+          {isRouteLocked ? <Lock size={20} /> : <Unlock size={20} />}
+        </button>
 
         <button
           type="button"
@@ -48,7 +64,7 @@ export function TopBar() {
         </button>
       </header>
 
-      {status && (
+      {status && !isRouteLocked && (
         <p
           className={`pointer-events-none mx-auto flex w-fit items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs ${
             isRouting ? 'text-sky-300' : 'text-slate-400'

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Compass, History, Menu, Pencil, Repeat, Settings, Undo2 } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
@@ -13,8 +13,9 @@ const ITEM_CLASS =
  * panel or changes the route.
  */
 export function MenuButton() {
-  const [isOpen, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isOpen = useSimulationStore((state) => state.isMenuOpen);
+  const setOpen = useSimulationStore((state) => state.openMenu);
 
   const openHistory = useSimulationStore((state) => state.openHistory);
   const openSettings = useSimulationStore((state) => state.openSettings);
@@ -27,6 +28,7 @@ export function MenuButton() {
   const setDrawArmed = useSimulationStore((state) => state.setDrawArmed);
   const resetNorth = useSimulationStore((state) => state.resetNorth);
   const hasToken = useSimulationStore((state) => state.mapboxToken !== null);
+  const isRouteLocked = useSimulationStore((state) => state.isRouteLocked);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -36,7 +38,9 @@ export function MenuButton() {
     // Capture, so a tap that lands on the map closes the menu before the map handles it.
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [isOpen]);
+    // `setOpen` is the store's action and never changes identity; it is listed so the
+    // dependency list stays honest rather than relying on that.
+  }, [isOpen, setOpen]);
 
   const run = (action: () => void) => () => {
     setOpen(false);
@@ -61,7 +65,7 @@ export function MenuButton() {
       {isOpen && (
         <div
           role="menu"
-          className={`pointer-events-auto absolute left-0 top-[calc(100%+0.5rem)] flex w-52 flex-col gap-0.5 rounded-2xl p-1.5 ${GLASS_SURFACE}`}
+          className={`pointer-events-auto absolute left-0 top-[calc(100%+0.5rem)] z-20 flex w-52 flex-col gap-0.5 rounded-2xl p-1.5 ${GLASS_SURFACE}`}
         >
           <button type="button" role="menuitem" className={ITEM_CLASS} onClick={run(() => openSettings(true))}>
             <Settings size={18} /> Settings
@@ -73,7 +77,7 @@ export function MenuButton() {
             type="button"
             role="menuitem"
             className={ITEM_CLASS}
-            disabled={pointCount < 2 || isRouting}
+            disabled={pointCount < 2 || isRouting || isRouteLocked}
             onClick={run(() => void reverseRoute())}
           >
             <Repeat size={18} /> Reverse route
@@ -82,7 +86,7 @@ export function MenuButton() {
             type="button"
             role="menuitem"
             className={ITEM_CLASS}
-            disabled={!canUndo || isRouting}
+            disabled={!canUndo || isRouting || isRouteLocked}
             onClick={run(undo)}
           >
             <Undo2 size={18} /> Undo
@@ -91,7 +95,7 @@ export function MenuButton() {
             type="button"
             role="menuitem"
             className={`${ITEM_CLASS} ${isDrawArmed ? 'text-amber-300' : ''}`}
-            disabled={!hasToken}
+            disabled={!hasToken || isRouteLocked}
             aria-pressed={isDrawArmed}
             onClick={run(() => setDrawArmed(!isDrawArmed))}
           >

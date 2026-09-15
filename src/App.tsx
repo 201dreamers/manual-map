@@ -3,10 +3,10 @@ import { ControlPanel } from './components/ControlPanel';
 import { HistoryDrawer } from './components/HistoryDrawer';
 import { MapView } from './components/MapView';
 import { PlanDrawer } from './components/PlanDrawer';
-import { RecenterButton } from './components/RecenterButton';
 import { SettingsModal } from './components/SettingsModal';
 import { ToastStack } from './components/ToastStack';
 import { TopBar } from './components/TopBar';
+import { ZoomControls } from './components/ZoomControls';
 import { useAnimationLoop } from './lib/useAnimationLoop';
 import { useWakeLock } from './lib/useWakeLock';
 import { useSimulationStore } from './store/simulationStore';
@@ -37,10 +37,10 @@ function App() {
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
           <TopBar />
+          <ZoomControls />
         </div>
 
         <PlanDrawer />
-        <RecenterButton />
         <ControlPanel />
       </main>
 

@@ -1,4 +1,4 @@
-import { along, bearing, length, lineString, simplify } from '@turf/turf';
+import { along, bearing, length, lineString, nearestPointOnLine, simplify } from '@turf/turf';
 import type { Feature, LineString } from 'geojson';
 import type { CoordinateTuple } from '../types/domain';
 
@@ -8,6 +8,13 @@ const SIMPLIFY_VERTEX_THRESHOLD = 1500;
 const SIMPLIFY_TOLERANCE_DEGREES = 0.00001;
 /** Look-ahead used to derive a stable heading instead of a jittery per-vertex bearing. */
 const BEARING_LOOKAHEAD_METERS = 8;
+/**
+ * AC-508: how close a tap must land to the route, in screen pixels, before it moves
+ * the marker. Measured in pixels rather than meters (unlike the draw threshold in
+ * section 17a) because it is aimed at the accuracy of a finger, which is a fixed
+ * physical size: a metric gate is unhittable when zoomed out.
+ */
+export const TAP_SNAP_PIXELS = 44;
 
 export interface RouteGeometry {
   line: Feature<LineString>;
@@ -60,6 +67,38 @@ export function bearingAtDistance(geometry: RouteGeometry, distanceMeters: numbe
   const start = coordinateAtDistance(geometry, from);
   const end = coordinateAtDistance(geometry, to);
   return normalizeBearing(bearing(start, end));
+}
+
+/** A coordinate snapped onto a route, with how far along that route it landed. */
+export interface RouteProjection {
+  coordinate: CoordinateTuple;
+  distanceMeters: number;
+}
+
+/** A point in screen space, as Mapbox reports tap positions. */
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Snaps a coordinate onto a route line. Returns null when turf reports no location
+ * for the snapped point: falling back to 0 m would silently send the caller to the
+ * route start rather than telling it the projection failed.
+ */
+export function projectOntoRoute(
+  line: Feature<LineString>,
+  coordinate: CoordinateTuple,
+): RouteProjection | null {
+  const snapped = nearestPointOnLine(line, coordinate, { units: 'meters' });
+  const distanceMeters = snapped.properties.location;
+  if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters)) return null;
+  return { coordinate: snapped.geometry.coordinates as CoordinateTuple, distanceMeters };
+}
+
+/** AC-508: a tap steers the marker only when it lands near the route on screen. */
+export function isWithinTapRadius(tap: ScreenPoint, snapped: ScreenPoint): boolean {
+  return Math.hypot(tap.x - snapped.x, tap.y - snapped.y) <= TAP_SNAP_PIXELS;
 }
 
 export function clampDistance(geometry: RouteGeometry, distanceMeters: number): number {

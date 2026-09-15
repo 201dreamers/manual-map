@@ -1,7 +1,7 @@
-import { along, length, lineString, nearestPointOnLine, simplify } from '@turf/turf';
+import { along, length, lineString, simplify } from '@turf/turf';
 import type { Feature, LineString } from 'geojson';
 import { MAX_ROUTE_POINTS } from './directions';
-import type { RouteGeometry } from './geo';
+import { projectOntoRoute, type RouteGeometry } from './geo';
 import type { CoordinateTuple } from '../types/domain';
 
 /** How many drawn points are handed to the Directions API to shape the route. */
@@ -44,18 +44,22 @@ export function strokeLengthMeters(stroke: CoordinateTuple[]): number {
 
 /** Distance of a coordinate's projection along the route, in meters. */
 function alongDistance(line: Feature<LineString>, coordinate: CoordinateTuple): number {
-  const snapped = nearestPointOnLine(line, coordinate, { units: 'meters' });
-  return snapped.properties.location ?? 0;
+  return projectOntoRoute(line, coordinate)?.distanceMeters ?? 0;
 }
 
+/**
+ * A splice keeps the historic 0 m fallback rather than refusing a stroke, because an
+ * entry that cannot be located still has a usable snapped coordinate. Tap-to-move
+ * takes the opposite view and treats the same case as a miss (AC-508).
+ */
 function projectOnto(
   line: Feature<LineString>,
   coordinate: CoordinateTuple,
 ): { coordinate: CoordinateTuple; distance: number } {
-  const snapped = nearestPointOnLine(line, coordinate, { units: 'meters' });
+  const snapped = projectOntoRoute(line, coordinate);
   return {
-    coordinate: snapped.geometry.coordinates as CoordinateTuple,
-    distance: snapped.properties.location ?? 0,
+    coordinate: snapped?.coordinate ?? coordinate,
+    distance: snapped?.distanceMeters ?? 0,
   };
 }
 

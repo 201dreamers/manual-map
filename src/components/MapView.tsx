@@ -1,6 +1,7 @@
 import mapboxgl from 'mapbox-gl';
 import { useCallback, useEffect, useRef } from 'react';
-import { lerpBearing } from '../lib/geo';
+import { lerpZoom, steppedZoom, trackingPadding, ZOOM_SMOOTHING } from '../lib/camera';
+import { isWithinTapRadius, lerpBearing, projectOntoRoute } from '../lib/geo';
 import { useSimulationStore } from '../store/simulationStore';
 import type { CoordinateTuple, TelemetryState } from '../types/domain';
 
@@ -12,6 +13,8 @@ const TRACKING_ZOOM = 16;
 const BEARING_SMOOTHING = 0.18;
 /** Duration of the fit-to-route animation shown right after a route is calculated. */
 const ROUTE_FIT_DURATION_MS = 600;
+/** Short enough to feel like a button press, long enough not to jolt the map. */
+const ZOOM_EASE_DURATION_MS = 250;
 
 const SKETCH_SOURCE_ID = 'simulation-sketch';
 const SKETCH_LAYER_ID = 'simulation-sketch-line';
@@ -55,6 +58,11 @@ export function MapView() {
   const appliedBearingRef = useRef(0);
   const hasTrackedOnceRef = useRef(false);
   const suppressClickUntilRef = useRef(0);
+  /**
+   * The zoom the tracking loop is easing towards. Null until the camera has locked
+   * on once, after which every tracking frame drives the zoom from here.
+   */
+  const zoomTargetRef = useRef<number | null>(null);
 
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
 
@@ -135,15 +143,35 @@ export function MapView() {
     map.on('moveend', publishViewport);
 
     map.on('click', (event) => {
-      if (useSimulationStore.getState().isDrawArmed) return;
+      const state = useSimulationStore.getState();
+      if (state.isDrawArmed) return;
       // A stroke ends with a synthetic click; ignore it so drawing never drops a pin.
       if (performance.now() < suppressClickUntilRef.current) return;
-      void useSimulationStore
-        .getState()
-        .addRoutePoint([event.lngLat.lng, event.lngLat.lat] as CoordinateTuple);
+
+      const tapped = [event.lngLat.lng, event.lngLat.lat] as CoordinateTuple;
+
+      // D-4: locking turns the map from an editor into a steering surface - a tap
+      // moves the marker along the route instead of adding a stop.
+      if (state.isRouteLocked) {
+        const geometry = state.geometry;
+        if (!geometry) return;
+
+        const snapped = projectOntoRoute(geometry.line, tapped);
+        // The snap itself is metric; only the accept/reject test is in pixels, so a
+        // stray thumb cannot drag the marker across the map (AC-508).
+        if (!snapped || !isWithinTapRadius(event.point, map.project(snapped.coordinate))) {
+          state.pushToast('info', 'Tap the route to move the marker.');
+          return;
+        }
+
+        state.moveCursorTo(snapped.distanceMeters);
+        return;
+      }
+
+      void state.addRoutePoint(tapped);
     });
 
-    // FR-4.3: any manual gesture suspends auto-centering and rotation.
+    // FR-4.3: a manual pan or rotate suspends auto-centering and rotation.
     const handleUserGesture = (event: unknown) => {
       // Only gestures carry an originalEvent; camera moves driven by this app do not.
       if (!(event as { originalEvent?: unknown }).originalEvent) return;
@@ -152,8 +180,18 @@ export function MapView() {
       }
     };
     map.on('dragstart', handleUserGesture);
-    map.on('zoomstart', handleUserGesture);
     map.on('rotatestart', handleUserGesture);
+
+    // A pinch changes the zoom directly, so the tracking target follows it live.
+    // Without this the next tracking frame would ease straight back to the old zoom.
+    map.on('zoom', (event) => {
+      if (!(event as { originalEvent?: unknown }).originalEvent) return;
+      zoomTargetRef.current = map.getZoom();
+    });
+    // D-7: zoom is deliberately absent. Widening the view to see the road ahead is
+    // not a request to stop following the vehicle, so a pinch keeps tracking alive.
+    // The pinch's rotation half is suppressed separately while tracking, otherwise
+    // it would fight the heading-up camera on the very next frame.
 
     return () => {
       pointMarkersRef.current.forEach((marker) => marker.remove());
@@ -161,6 +199,7 @@ export function MapView() {
       map.remove();
       mapRef.current = null;
       hasTrackedOnceRef.current = false;
+      zoomTargetRef.current = null;
     };
   }, [mapboxToken]);
 
@@ -297,6 +336,63 @@ export function MapView() {
     [],
   );
 
+  // A zoom request steps the camera without disturbing what it is following.
+  useEffect(
+    () =>
+      useSimulationStore.subscribe(
+        (state) => state.zoomRequest,
+        (request) => {
+          const map = mapRef.current;
+          if (!map || request.delta === 0) return;
+
+          const from = zoomTargetRef.current ?? map.getZoom();
+          const next = steppedZoom(from, request.delta, map.getMaxZoom());
+          zoomTargetRef.current = next;
+
+          // The ease always runs. While playing it is cut short by the next tracking
+          // frame, which eases towards the same target, so the two agree. While paused
+          // no tracking frame ever arrives - the loop is driven by telemetry, which is
+          // static - so this ease is the only thing that applies the new zoom.
+          const { config, telemetry } = useSimulationStore.getState();
+          if (config.cameraTrackingEnabled && telemetry.currentCoordinate) {
+            // Re-anchor while zooming, or the vehicle would drift off its anchor: an
+            // ease without a centre zooms about the middle of the map, not about a
+            // marker sitting three quarters down the screen.
+            map.easeTo({
+              center: telemetry.currentCoordinate,
+              zoom: next,
+              padding: trackingPadding(map.getContainer().clientHeight),
+              retainPadding: false,
+              duration: ZOOM_EASE_DURATION_MS,
+            });
+          } else {
+            map.easeTo({ zoom: next, duration: ZOOM_EASE_DURATION_MS });
+          }
+        },
+      ),
+    [],
+  );
+
+  /**
+   * A two-finger pinch carries a rotation component. While the camera is following
+   * the vehicle that rotation is overwritten on the next frame anyway, so it is
+   * suppressed rather than left to fight the heading-up bearing.
+   */
+  useEffect(() => {
+    const applyTracking = (enabled: boolean) => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (enabled) map.touchZoomRotate.disableRotation();
+      else map.touchZoomRotate.enableRotation();
+    };
+
+    applyTracking(useSimulationStore.getState().config.cameraTrackingEnabled);
+    return useSimulationStore.subscribe(
+      (state) => state.config.cameraTrackingEnabled,
+      applyTracking,
+    );
+  }, [mapboxToken]);
+
   // Tap points -> waypoint markers.
   useEffect(() => {
     const render = (points: { id: string; coordinate: CoordinateTuple }[]) => {
@@ -348,10 +444,26 @@ export function MapView() {
       vehiclePoseRef.current = { coordinate, bearingDegrees: smoothedBearing };
 
       if (useSimulationStore.getState().config.cameraTrackingEnabled) {
+        // A tracking frame is a jumpTo, which stops animations, so an easeTo started
+        // by the zoom buttons would die on the next frame. The target is eased here
+        // instead, which is the only place that survives playback.
+        let zoom: number;
+        if (!hasTrackedOnceRef.current) {
+          zoom = Math.max(map.getZoom(), TRACKING_ZOOM);
+          zoomTargetRef.current = zoom;
+        } else if (zoomTargetRef.current !== null) {
+          zoom = lerpZoom(map.getZoom(), zoomTargetRef.current, ZOOM_SMOOTHING);
+        } else {
+          zoom = map.getZoom();
+        }
+
         map.jumpTo({
           center: coordinate,
           bearing: smoothedBearing,
-          zoom: hasTrackedOnceRef.current ? map.getZoom() : Math.max(map.getZoom(), TRACKING_ZOOM),
+          zoom,
+          // Anchors the vehicle below centre so the road ahead gets the screen.
+          padding: trackingPadding(map.getContainer().clientHeight),
+          retainPadding: false,
         });
         hasTrackedOnceRef.current = true;
       }
@@ -390,6 +502,10 @@ export function MapView() {
             center: telemetry.currentCoordinate,
             bearing: telemetry.bearingDegrees,
             zoom: Math.max(map.getZoom(), TRACKING_ZOOM),
+            // Recentring lands on the same anchor the tracking frames use, so the
+            // marker does not jump to the middle and then drift back down.
+            padding: trackingPadding(map.getContainer().clientHeight),
+            retainPadding: false,
             duration: 450,
           });
         },
