@@ -1,5 +1,5 @@
 import mapboxgl from 'mapbox-gl';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { lerpBearing } from '../lib/geo';
 import { useSimulationStore } from '../store/simulationStore';
 import type { CoordinateTuple, TelemetryState } from '../types/domain';
@@ -24,10 +24,18 @@ const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = {
   features: [],
 };
 
+/**
+ * The vehicle is placed by hand rather than through mapboxgl.Marker: Marker rounds
+ * its screen position to whole pixels (`this._pos = this._pos.round()`), so against
+ * the sub-pixel GL canvas the arrow visibly jitters in place while the camera
+ * follows it. Projecting unrounded keeps it still.
+ */
 function createVehicleElement(): HTMLDivElement {
   const element = document.createElement('div');
   element.className =
-    'flex h-11 w-11 items-center justify-center rounded-full bg-sky-500/20 ring-2 ring-sky-400';
+    'pointer-events-none absolute left-0 top-0 z-10 flex h-11 w-11 items-center ' +
+    'justify-center rounded-full bg-sky-500/20 ring-2 ring-sky-400';
+  element.style.willChange = 'transform';
   element.innerHTML = `
     <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2 20 21 12 16.8 4 21Z" fill="#0ea5e9" stroke="#f8fafc" stroke-width="1.5"
@@ -39,13 +47,32 @@ function createVehicleElement(): HTMLDivElement {
 export function MapView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const vehicleMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const vehicleElementRef = useRef<HTMLDivElement | null>(null);
+  const vehiclePoseRef = useRef<{ coordinate: CoordinateTuple; bearingDegrees: number } | null>(
+    null,
+  );
   const pointMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const appliedBearingRef = useRef(0);
   const hasTrackedOnceRef = useRef(false);
   const suppressClickUntilRef = useRef(0);
 
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
+
+  /**
+   * Projects the vehicle to screen space without rounding, then rotates it about its
+   * own centre. Runs on every rendered frame so it stays glued while panning.
+   */
+  const placeVehicle = useCallback(() => {
+    const map = mapRef.current;
+    const element = vehicleElementRef.current;
+    const pose = vehiclePoseRef.current;
+    if (!map || !element || !pose) return;
+
+    const point = map.project(pose.coordinate);
+    const rotation = pose.bearingDegrees - map.getBearing();
+    element.style.transform =
+      `translate(-50%, -50%) translate(${point.x}px, ${point.y}px) rotate(${rotation}deg)`;
+  }, []);
 
   // Map lifecycle: recreated only when the access token changes.
   useEffect(() => {
@@ -131,8 +158,6 @@ export function MapView() {
     return () => {
       pointMarkersRef.current.forEach((marker) => marker.remove());
       pointMarkersRef.current = [];
-      vehicleMarkerRef.current?.remove();
-      vehicleMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
       hasTrackedOnceRef.current = false;
@@ -301,22 +326,18 @@ export function MapView() {
 
       const coordinate = telemetry.currentCoordinate;
       if (!coordinate) {
-        vehicleMarkerRef.current?.remove();
-        vehicleMarkerRef.current = null;
+        vehicleElementRef.current?.remove();
+        vehicleElementRef.current = null;
+        vehiclePoseRef.current = null;
         return;
       }
 
-      if (!vehicleMarkerRef.current) {
-        vehicleMarkerRef.current = new mapboxgl.Marker({
-          element: createVehicleElement(),
-          rotationAlignment: 'map',
-        })
-          .setLngLat(coordinate)
-          .addTo(map);
-      } else {
-        vehicleMarkerRef.current.setLngLat(coordinate);
+      if (!vehicleElementRef.current) {
+        vehicleElementRef.current = createVehicleElement();
+        map.getContainer().appendChild(vehicleElementRef.current);
       }
-      // The marker is map-aligned, so its on-screen angle is its rotation minus the
+
+      // The element is map-aligned, so its on-screen angle is its rotation minus the
       // camera bearing. Feeding it the raw heading while the camera runs on the
       // smoothed one makes the arrow swing by exactly the lag between them, so both
       // read from the same smoothed value.
@@ -324,21 +345,34 @@ export function MapView() {
         ? lerpBearing(appliedBearingRef.current, telemetry.bearingDegrees, BEARING_SMOOTHING)
         : telemetry.bearingDegrees;
       appliedBearingRef.current = smoothedBearing;
-      vehicleMarkerRef.current.setRotation(smoothedBearing);
+      vehiclePoseRef.current = { coordinate, bearingDegrees: smoothedBearing };
 
-      if (!useSimulationStore.getState().config.cameraTrackingEnabled) return;
+      if (useSimulationStore.getState().config.cameraTrackingEnabled) {
+        map.jumpTo({
+          center: coordinate,
+          bearing: smoothedBearing,
+          zoom: hasTrackedOnceRef.current ? map.getZoom() : Math.max(map.getZoom(), TRACKING_ZOOM),
+        });
+        hasTrackedOnceRef.current = true;
+      }
 
-      map.jumpTo({
-        center: coordinate,
-        bearing: smoothedBearing,
-        zoom: hasTrackedOnceRef.current ? map.getZoom() : Math.max(map.getZoom(), TRACKING_ZOOM),
-      });
-      hasTrackedOnceRef.current = true;
+      placeVehicle();
     };
 
+    // Panning and zooming move the vehicle on screen without any telemetry change.
+    const map = mapRef.current;
+    map?.on('render', placeVehicle);
     apply(useSimulationStore.getState().telemetry);
-    return useSimulationStore.subscribe((state) => state.telemetry, apply);
-  }, []);
+    const unsubscribe = useSimulationStore.subscribe((state) => state.telemetry, apply);
+    return () => {
+      map?.off('render', placeVehicle);
+      unsubscribe();
+      vehicleElementRef.current?.remove();
+      vehicleElementRef.current = null;
+    };
+    // A new token rebuilds the map, so the render listener and the element that the
+    // old container held have to be rebound to the new one.
+  }, [placeVehicle, mapboxToken]);
 
   // Re-enabling tracking snaps the camera back onto the vehicle.
   useEffect(
