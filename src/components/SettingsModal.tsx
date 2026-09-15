@@ -217,7 +217,15 @@ export function SettingsModal() {
   };
 
   return (
-    <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
+    <div
+      className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm"
+      // A tall modal grows to the full height, so the insets have to keep it clear of
+      // the Dynamic Island at the top and the home indicator at the bottom.
+      style={{
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+      }}
+    >
       <div className="max-h-full w-full max-w-sm overflow-y-auto rounded-2xl bg-slate-900 p-4 shadow-2xl ring-1 ring-slate-800">
         <header className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-100">Settings</h2>
