@@ -2,25 +2,64 @@ import { useState } from 'react';
 import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, X } from 'lucide-react';
 import { validatePublicToken } from '../lib/token';
 import {
+  MAX_STEP_ANIMATION_MS,
   MAX_STEP_METERS,
+  MIN_STEP_ANIMATION_MS,
   MIN_STEP_METERS,
   useSimulationStore,
   type StepDirection,
 } from '../store/simulationStore';
 
 const STEP_PRESETS_METERS = [125, 250, 500, 1000];
+/** Glide lengths that stay readable without holding up the next tap. */
+const GLIDE_PRESETS_MS = [300, 700, 1200, 2000];
+
+function PresetRow({
+  presets,
+  value,
+  format,
+  onPick,
+}: {
+  presets: number[];
+  value: number;
+  format: (preset: number) => string;
+  onPick: (preset: number) => void;
+}) {
+  return (
+    <div className="flex gap-1.5">
+      {presets.map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          onClick={() => onPick(preset)}
+          className={`min-h-[32px] flex-1 rounded-lg px-1 text-[11px] font-mono ring-1 transition active:scale-95 ${
+            value === preset
+              ? 'bg-sky-500/20 text-sky-200 ring-sky-500/50'
+              : 'bg-slate-800 text-slate-400 ring-slate-700'
+          }`}
+        >
+          {format(preset)}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function StepDistanceField({
   direction,
   label,
   value,
+  glideMs,
 }: {
   direction: StepDirection;
   label: string;
   value: number;
+  glideMs: number;
 }) {
   const setStepDistance = useSimulationStore((state) => state.setStepDistance);
+  const setStepAnimationMs = useSimulationStore((state) => state.setStepAnimationMs);
   const inputId = direction === 1 ? 'step-forward' : 'step-back';
+  const glideId = direction === 1 ? 'glide-forward' : 'glide-back';
   const Icon = direction === 1 ? ChevronsRight : ChevronsLeft;
 
   return (
@@ -45,22 +84,39 @@ function StepDistanceField({
         />
         <span className="text-xs text-slate-500">m</span>
       </div>
-      <div className="flex gap-1.5">
-        {STEP_PRESETS_METERS.map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            onClick={() => setStepDistance(direction, preset)}
-            className={`min-h-[32px] flex-1 rounded-lg px-1 text-[11px] font-mono ring-1 transition active:scale-95 ${
-              value === preset
-                ? 'bg-sky-500/20 text-sky-200 ring-sky-500/50'
-                : 'bg-slate-800 text-slate-400 ring-slate-700'
-            }`}
-          >
-            {preset}
-          </button>
-        ))}
+      <PresetRow
+        presets={STEP_PRESETS_METERS}
+        value={value}
+        format={(preset) => String(preset)}
+        onPick={(preset) => setStepDistance(direction, preset)}
+      />
+
+      <label htmlFor={glideId} className="mt-1 text-xs text-slate-400">
+        Glide
+      </label>
+      <div className="flex items-center gap-1.5">
+        <input
+          id={glideId}
+          type="number"
+          inputMode="numeric"
+          min={MIN_STEP_ANIMATION_MS}
+          max={MAX_STEP_ANIMATION_MS}
+          step={50}
+          value={glideMs}
+          onChange={(event) => {
+            const parsed = Number(event.target.value);
+            if (Number.isFinite(parsed)) setStepAnimationMs(direction, parsed);
+          }}
+          className="min-h-[44px] w-full rounded-xl bg-slate-800 px-3 text-center font-mono text-sm text-slate-100 ring-1 ring-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+        />
+        <span className="text-xs text-slate-500">ms</span>
       </div>
+      <PresetRow
+        presets={GLIDE_PRESETS_MS}
+        value={glideMs}
+        format={(preset) => `${preset / 1000}s`}
+        onPick={(preset) => setStepAnimationMs(direction, preset)}
+      />
     </div>
   );
 }
@@ -70,6 +126,10 @@ export function SettingsModal() {
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
   const stepForwardMeters = useSimulationStore((state) => state.config.stepForwardMeters);
   const stepBackMeters = useSimulationStore((state) => state.config.stepBackMeters);
+  const stepForwardAnimationMs = useSimulationStore(
+    (state) => state.config.stepForwardAnimationMs,
+  );
+  const stepBackAnimationMs = useSimulationStore((state) => state.config.stepBackAnimationMs);
   const controlsMirrored = useSimulationStore((state) => state.config.controlsMirrored);
   const setControlsMirrored = useSimulationStore((state) => state.setControlsMirrored);
   const openSettings = useSimulationStore((state) => state.openSettings);
@@ -144,13 +204,23 @@ export function SettingsModal() {
 
         {!isForced && (
           <section className="mb-5">
-            <h3 className="mb-1 text-sm font-medium text-slate-200">Step distances</h3>
+            <h3 className="mb-1 text-sm font-medium text-slate-200">Steps</h3>
             <p className="mb-3 text-xs text-slate-400">
-              Forward and backward steps are configured independently.
+              Distance and glide length are configured independently for each direction.
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <StepDistanceField direction={-1} label="Back" value={stepBackMeters} />
-              <StepDistanceField direction={1} label="Forward" value={stepForwardMeters} />
+              <StepDistanceField
+                direction={-1}
+                label="Back"
+                value={stepBackMeters}
+                glideMs={stepBackAnimationMs}
+              />
+              <StepDistanceField
+                direction={1}
+                label="Forward"
+                value={stepForwardMeters}
+                glideMs={stepForwardAnimationMs}
+              />
             </div>
           </section>
         )}

@@ -44,8 +44,9 @@ export type StepDirection = 1 | -1;
 /** How many route-changing operations can be reverted. */
 export const UNDO_DEPTH = 10;
 
-/** A step glides to its target instead of teleporting, so the eye can follow the jump. */
-export const STEP_ANIMATION_MS = 450;
+/** Glide bounds: below the floor a step reads as a teleport, above the ceiling it drags. */
+export const MIN_STEP_ANIMATION_MS = 100;
+export const MAX_STEP_ANIMATION_MS = 3000;
 
 /** Drawer edits coalesce for this long so a burst of reorders costs one request. */
 export const RECALC_DEBOUNCE_MS = 400;
@@ -63,6 +64,8 @@ interface StepAnimation {
   fromMeters: number;
   toMeters: number;
   elapsedMs: number;
+  /** Taken from the config for the direction the step was fired in. */
+  durationMs: number;
   /** The geometry the step was aimed at; a route change abandons the glide. */
   geometry: RouteGeometry;
 }
@@ -87,6 +90,8 @@ const EMPTY_TELEMETRY: TelemetryState = {
 const DEFAULT_CONFIG: SimulationConfig = {
   stepForwardMeters: 250,
   stepBackMeters: 125,
+  stepForwardAnimationMs: 700,
+  stepBackAnimationMs: 700,
   speedKmh: 60,
   speedUnit: 'kmh',
   isPlaying: false,
@@ -154,6 +159,7 @@ export interface SimulationState {
   clearSavedRoutes: () => void;
 
   setStepDistance: (direction: StepDirection, meters: number) => void;
+  setStepAnimationMs: (direction: StepDirection, milliseconds: number) => void;
   setControlsMirrored: (mirrored: boolean) => void;
   setSpeed: (kmh: number) => void;
   setSpeedUnit: (unit: SimulationConfig['speedUnit']) => void;
@@ -734,6 +740,15 @@ export const useSimulationStore = create<SimulationState>()(
         set({ config: { ...get().config, [key]: clamped } });
       },
 
+      setStepAnimationMs: (direction, milliseconds) => {
+        const clamped = Math.min(
+          Math.max(Math.round(milliseconds), MIN_STEP_ANIMATION_MS),
+          MAX_STEP_ANIMATION_MS,
+        );
+        const key = direction === 1 ? 'stepForwardAnimationMs' : 'stepBackAnimationMs';
+        set({ config: { ...get().config, [key]: clamped } });
+      },
+
       setControlsMirrored: (mirrored) => {
         settingsRepository.update({ controlsMirrored: mirrored });
         set({ config: { ...get().config, controlsMirrored: mirrored } });
@@ -807,6 +822,8 @@ export const useSimulationStore = create<SimulationState>()(
           fromMeters: telemetry.currentDistanceMeters,
           toMeters: target,
           elapsedMs: 0,
+          durationMs:
+            direction === 1 ? config.stepForwardAnimationMs : config.stepBackAnimationMs,
           geometry,
         };
       },
@@ -820,7 +837,7 @@ export const useSimulationStore = create<SimulationState>()(
         }
 
         stepAnimation.elapsedMs += deltaSeconds * 1000;
-        const progress = Math.min(stepAnimation.elapsedMs / STEP_ANIMATION_MS, 1);
+        const progress = Math.min(stepAnimation.elapsedMs / stepAnimation.durationMs, 1);
         const { fromMeters, toMeters } = stepAnimation;
         applyDistance(fromMeters + (toMeters - fromMeters) * easeOutCubic(progress));
 

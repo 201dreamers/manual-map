@@ -31,7 +31,10 @@ export interface TelemetryState {
 
 export interface SimulationConfig {
   stepForwardMeters: number; // default 500
-  stepBackMeters: number; // default 500
+  stepBackMeters: number;
+  /** How long the marker takes to glide through a step, per direction. */
+  stepForwardAnimationMs: number;
+  stepBackAnimationMs: number; // default 500
   speedKmh: number; // range 0 - 180
   speedUnit: 'kmh' | 'mph';
   isPlaying: boolean;
