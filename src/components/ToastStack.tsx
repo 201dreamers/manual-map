@@ -15,7 +15,11 @@ export function ToastStack() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="pointer-events-none absolute inset-x-3 top-2 z-50 flex flex-col gap-2">
+    <div
+      className="pointer-events-none absolute inset-x-3 top-0 z-50 flex flex-col gap-2"
+      // Standalone mode draws under the status bar, so the first toast needs the inset.
+      style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
+    >
       {toasts.map((toast) => {
         const { className, Icon } = STYLES[toast.kind];
         return (

@@ -45,7 +45,7 @@ gitignored - no token ever belongs in a commit.
 | Action | How |
 |---|---|
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
-| Undo / reverse | In the top-left menu, together with Settings, History, Draw and Face north. |
+| Undo / reverse | In the top-left menu, together with Settings, History, Draw, Face north and Check for updates. |
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
 | Step | Floating back / forward buttons at the bottom right of the map; the marker eases to the new position and repeated taps stack. Distance and glide length (default 700 ms) are configured per direction in Settings. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
@@ -96,7 +96,16 @@ playback, which plain-HTTP LAN access cannot.
 
 **Map data still needs a connection.** Mapbox tiles, Directions and Geocoding are live
 calls and are deliberately not cached, so the app shell works offline but the map does
-not. Rebuilds are picked up automatically on the next launch.
+not.
+
+### Picking up a new build
+
+An installed copy reloads itself as soon as an update check finds a new service worker.
+iOS often restores a standalone app from its snapshot without navigating afresh, so the
+check runs whenever the app returns to the foreground, and **Check for updates** in the
+menu forces one by hand. Either way the Mac has to be serving the same origin at the
+time; otherwise the cached build keeps running and the menu reports that the server
+could not be reached.
 
 ## Scripts
 
