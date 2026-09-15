@@ -24,8 +24,12 @@ const localHttps = existsSync(CERT_PATH) && existsSync(KEY_PATH)
   ? { cert: readFileSync(CERT_PATH), key: readFileSync(KEY_PATH) }
   : undefined
 
+/** Stamped into the bundle so Settings can show which build is actually running. */
+const BUILD_STAMP = new Date().toISOString()
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: { __APP_BUILD__: JSON.stringify(BUILD_STAMP) },
   plugins: [
     react(),
     tailwindcss(),

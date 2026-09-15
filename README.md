@@ -45,11 +45,11 @@ gitignored - no token ever belongs in a commit.
 | Action | How |
 |---|---|
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
-| Undo / reverse | In the top-left menu, together with Settings, History, Draw, Face north and Check for updates. |
+| Undo / reverse | In the top-left menu, together with Settings, History, Draw and Face north. |
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
 | Step | Floating back / forward buttons at the bottom right of the map; the marker eases to the new position and repeated taps stack. Distance and glide length (default 700 ms) are configured per direction in Settings. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
-| Settings | Control mirroring, the per-direction step distance and glide length, then the Mapbox token. |
+| Settings | The running build and an update check, control mirroring, the per-direction step distance and glide length, then the Mapbox token. |
 | Mirror | Swaps the bottom-left playback cluster with the bottom-right step cluster for left-handed use; remembered across reloads. |
 | Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button; "Face north" in the menu rotates the map back to north-up. |
 | History | Every calculated route is saved to `localStorage` and can be reloaded, deleted, or cleared from the side drawer. |
@@ -102,8 +102,9 @@ not.
 
 An installed copy reloads itself as soon as an update check finds a new service worker.
 iOS often restores a standalone app from its snapshot without navigating afresh, so the
-check runs whenever the app returns to the foreground, and **Check for updates** in the
-menu forces one by hand. Either way the Mac has to be serving the same origin at the
+check runs whenever the app returns to the foreground, and **Settings -> App -> Check
+for updates** forces one by hand. The same section shows the build timestamp compiled
+into the bundle, so a reload can be confirmed rather than assumed. Either way the Mac has to be serving the same origin at the
 time; otherwise the cached build keeps running and the menu reports that the server
 could not be reached.
 

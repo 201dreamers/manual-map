@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Compass, History, Menu, Pencil, Repeat, RefreshCw, Settings, Undo2 } from 'lucide-react';
-import { checkForUpdate } from '../lib/appUpdate';
+import { Compass, History, Menu, Pencil, Repeat, Settings, Undo2 } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
 
@@ -27,7 +26,6 @@ export function MenuButton() {
   const isDrawArmed = useSimulationStore((state) => state.isDrawArmed);
   const setDrawArmed = useSimulationStore((state) => state.setDrawArmed);
   const resetNorth = useSimulationStore((state) => state.resetNorth);
-  const pushToast = useSimulationStore((state) => state.pushToast);
   const hasToken = useSimulationStore((state) => state.mapboxToken !== null);
 
   useEffect(() => {
@@ -43,20 +41,6 @@ export function MenuButton() {
   const run = (action: () => void) => () => {
     setOpen(false);
     action();
-  };
-
-  /**
-   * iOS can relaunch an installed app from its snapshot without ever checking for a
-   * new build, so the check is offered by hand. A found update reloads the page
-   * itself once the new worker activates.
-   */
-  const checkForNewVersion = () => {
-    void checkForUpdate().then((outcome) => {
-      if (outcome === 'updating') pushToast('info', 'New version found. Reloading...');
-      else if (outcome === 'current') pushToast('success', 'Already up to date.');
-      else if (outcome === 'unreachable') pushToast('error', 'Could not reach the server.');
-      else pushToast('info', 'Updates are only checked in the installed app.');
-    });
   };
 
   return (
@@ -121,14 +105,6 @@ export function MenuButton() {
             onClick={run(resetNorth)}
           >
             <Compass size={18} /> Face north
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={ITEM_CLASS}
-            onClick={run(checkForNewVersion)}
-          >
-            <RefreshCw size={18} /> Check for updates
           </button>
         </div>
       )}

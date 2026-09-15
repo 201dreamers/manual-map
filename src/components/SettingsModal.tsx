@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, Loader2, RefreshCw, X } from 'lucide-react';
+import { checkForUpdate, type UpdateCheck } from '../lib/appUpdate';
+import { formatTimestamp } from '../lib/format';
 import { validatePublicToken } from '../lib/token';
 import {
   MAX_STEP_ANIMATION_MS,
@@ -121,6 +123,64 @@ function StepDistanceField({
   );
 }
 
+const UPDATE_MESSAGES: Record<UpdateCheck, string> = {
+  updating: 'New version found. Reloading...',
+  current: 'Already running the latest build.',
+  unreachable: 'Could not reach the server. The installed build keeps running.',
+  unsupported: 'Updates are only checked in the installed app.',
+};
+
+/**
+ * iOS can relaunch an installed app from its snapshot without ever checking for a
+ * new build, so the check is offered by hand. A found update reloads the page itself
+ * once the new worker activates.
+ */
+function UpdateSection() {
+  const [isChecking, setChecking] = useState(false);
+  const [outcome, setOutcome] = useState<UpdateCheck | null>(null);
+
+  const check = () => {
+    setChecking(true);
+    setOutcome(null);
+    void checkForUpdate().then((result) => {
+      setChecking(false);
+      setOutcome(result);
+    });
+  };
+
+  return (
+    <section className="mb-5">
+      <h3 className="mb-1 text-sm font-medium text-slate-200">App</h3>
+      <p className="mb-3 text-xs text-slate-400">
+        Build {formatTimestamp(__APP_BUILD__)}. An installed copy reloads itself once a
+        check finds a newer one, which needs the server reachable.
+      </p>
+      <button
+        type="button"
+        onClick={check}
+        disabled={isChecking}
+        className="flex min-h-[44px] w-full items-center gap-2 rounded-xl bg-slate-800 px-3 text-sm text-slate-200 ring-1 ring-slate-700 active:scale-[0.98] disabled:opacity-60"
+      >
+        {isChecking ? (
+          <Loader2 size={16} className="animate-spin text-sky-300" />
+        ) : (
+          <RefreshCw size={16} className="text-slate-400" />
+        )}
+        {isChecking ? 'Checking...' : 'Check for updates'}
+      </button>
+      {outcome && (
+        <p
+          className={`mt-2 text-xs ${
+            outcome === 'unreachable' ? 'text-amber-300' : 'text-slate-400'
+          }`}
+        >
+          {UPDATE_MESSAGES[outcome]}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function SettingsModal() {
   const isOpen = useSimulationStore((state) => state.isSettingsOpen);
   const mapboxToken = useSimulationStore((state) => state.mapboxToken);
@@ -172,6 +232,8 @@ export function SettingsModal() {
             </button>
           )}
         </header>
+
+        {!isForced && <UpdateSection />}
 
         {!isForced && (
           <section className="mb-5">
