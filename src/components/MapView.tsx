@@ -316,15 +316,17 @@ export function MapView() {
       } else {
         vehicleMarkerRef.current.setLngLat(coordinate);
       }
-      // Marker rotates with the map, so a heading-up camera keeps the arrow pointing up.
-      vehicleMarkerRef.current.setRotation(telemetry.bearingDegrees);
-
-      if (!useSimulationStore.getState().config.cameraTrackingEnabled) return;
-
+      // The marker is map-aligned, so its on-screen angle is its rotation minus the
+      // camera bearing. Feeding it the raw heading while the camera runs on the
+      // smoothed one makes the arrow swing by exactly the lag between them, so both
+      // read from the same smoothed value.
       const smoothedBearing = hasTrackedOnceRef.current
         ? lerpBearing(appliedBearingRef.current, telemetry.bearingDegrees, BEARING_SMOOTHING)
         : telemetry.bearingDegrees;
       appliedBearingRef.current = smoothedBearing;
+      vehicleMarkerRef.current.setRotation(smoothedBearing);
+
+      if (!useSimulationStore.getState().config.cameraTrackingEnabled) return;
 
       map.jumpTo({
         center: coordinate,

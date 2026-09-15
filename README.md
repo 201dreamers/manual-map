@@ -47,7 +47,7 @@ gitignored - no token ever belongs in a commit.
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
 | Undo / reverse | In the top-left menu, together with Settings, History, Draw and Face north. |
 | Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
-| Step | Floating back / forward buttons at the bottom right of the map. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
+| Step | Floating back / forward buttons at the bottom right of the map; the marker eases to the new position over ~450 ms and repeated taps stack. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Floating play button; moves at the slider speed (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
 | Settings | Control mirroring, the forward and backward step distances, then the Mapbox token. |
 | Mirror | Swaps the bottom-left playback cluster with the bottom-right step cluster for left-handed use; remembered across reloads. |

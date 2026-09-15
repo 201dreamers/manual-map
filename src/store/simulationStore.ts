@@ -44,6 +44,9 @@ export type StepDirection = 1 | -1;
 /** How many route-changing operations can be reverted. */
 export const UNDO_DEPTH = 10;
 
+/** A step glides to its target instead of teleporting, so the eye can follow the jump. */
+export const STEP_ANIMATION_MS = 450;
+
 /** Drawer edits coalesce for this long so a burst of reorders costs one request. */
 export const RECALC_DEBOUNCE_MS = 400;
 
@@ -54,6 +57,15 @@ export const MIN_SEARCH_LENGTH = 3;
 
 /** Where a chosen search result is placed in the stop list. */
 export type SearchRole = 'start' | 'via' | 'end';
+
+/** An in-flight step glide. Held outside the store so it never re-renders React. */
+interface StepAnimation {
+  fromMeters: number;
+  toMeters: number;
+  elapsedMs: number;
+  /** The geometry the step was aimed at; a route change abandons the glide. */
+  geometry: RouteGeometry;
+}
 
 /** A revertible snapshot of everything a route-changing operation touches. */
 interface RouteSnapshot {
@@ -155,11 +167,21 @@ export interface SimulationState {
 
   /** Advances the simulation by a frame delta. Called from the rAF loop only. */
   advance: (deltaSeconds: number) => void;
+  /**
+   * Drives an in-flight step glide by a frame delta. Called from the rAF loop only;
+   * returns true while a glide is still running.
+   */
+  advanceStepAnimation: (deltaSeconds: number) => boolean;
   /** Copies the live telemetry into the throttled slice that React subscribes to. */
   syncDisplayTelemetry: () => void;
 
   pushToast: (kind: ToastKind, text: string) => void;
   dismissToast: (id: string) => void;
+}
+
+/** Decelerating glide: fast off the mark, settling gently onto the target. */
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
 }
 
 function createId(): string {
@@ -252,6 +274,9 @@ let searchSequence = 0;
 let recalcTimer: ReturnType<typeof setTimeout> | null = null;
 /** State from before the first edit of the current burst, for undo and rollback. */
 let pendingEdit: { previous: RoutePoint[]; snapshot: RouteSnapshot } | null = null;
+
+/** The step glide currently in flight, if any. */
+let stepAnimation: StepAnimation | null = null;
 
 export const useSimulationStore = create<SimulationState>()(
   subscribeWithSelector((set, get) => {
@@ -740,14 +765,19 @@ export const useSimulationStore = create<SimulationState>()(
           applyDistance(0);
         }
         commitActiveRoute();
+        stepAnimation = null;
         set({ config: { ...get().config, isPlaying: true, cameraTrackingEnabled: true } });
       },
 
-      pause: () => set({ config: { ...get().config, isPlaying: false } }),
+      pause: () => {
+        stepAnimation = null;
+        set({ config: { ...get().config, isPlaying: false } });
+      },
 
       togglePlay: () => (get().config.isPlaying ? get().pause() : get().play()),
 
       resetToStart: () => {
+        stepAnimation = null;
         set({ config: { ...get().config, isPlaying: false } });
         applyDistance(0);
         get().syncDisplayTelemetry();
@@ -760,10 +790,45 @@ export const useSimulationStore = create<SimulationState>()(
 
         const stepMeters =
           direction === 1 ? config.stepForwardMeters : config.stepBackMeters;
-        const target = telemetry.currentDistanceMeters + direction * stepMeters;
+        // Tapping again mid-glide stacks onto the pending target rather than the
+        // position the marker happens to have reached.
+        const base = stepAnimation ? stepAnimation.toMeters : telemetry.currentDistanceMeters;
+        const target = clampDistance(geometry, base + direction * stepMeters);
+
         set({ config: { ...config, isPlaying: false } });
-        applyDistance(target);
+        if (target === telemetry.currentDistanceMeters) {
+          stepAnimation = null;
+          applyDistance(target);
+          get().syncDisplayTelemetry();
+          return;
+        }
+
+        stepAnimation = {
+          fromMeters: telemetry.currentDistanceMeters,
+          toMeters: target,
+          elapsedMs: 0,
+          geometry,
+        };
+      },
+
+      advanceStepAnimation: (deltaSeconds) => {
+        if (!stepAnimation) return false;
+        // A recalculation, undo or reload replaces the geometry the step was aimed at.
+        if (get().geometry !== stepAnimation.geometry) {
+          stepAnimation = null;
+          return false;
+        }
+
+        stepAnimation.elapsedMs += deltaSeconds * 1000;
+        const progress = Math.min(stepAnimation.elapsedMs / STEP_ANIMATION_MS, 1);
+        const { fromMeters, toMeters } = stepAnimation;
+        applyDistance(fromMeters + (toMeters - fromMeters) * easeOutCubic(progress));
+
+        if (progress < 1) return true;
+        stepAnimation = null;
+        // The throttled slice would otherwise miss the final frame and read short.
         get().syncDisplayTelemetry();
+        return false;
       },
 
       advance: (deltaSeconds) => {

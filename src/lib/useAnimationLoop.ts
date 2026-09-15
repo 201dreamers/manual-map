@@ -23,9 +23,13 @@ export function useAnimationLoop(): void {
       lastTickMs = nowMs;
 
       const store = useSimulationStore.getState();
-      if (!store.config.isPlaying) return;
-
-      store.advance(deltaSeconds);
+      // A step glides even while paused, so it is ticked before the playback check.
+      const isStepping = store.advanceStepAnimation(deltaSeconds);
+      if (!store.config.isPlaying) {
+        if (!isStepping) return;
+      } else {
+        store.advance(deltaSeconds);
+      }
 
       if (nowMs - lastDisplaySyncMs >= DISPLAY_SYNC_INTERVAL_MS) {
         lastDisplaySyncMs = nowMs;
