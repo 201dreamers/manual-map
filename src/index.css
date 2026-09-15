@@ -1,6 +1,16 @@
 @import "tailwindcss";
 @import "mapbox-gl/dist/mapbox-gl.css";
 
+/*
+ * The UI is dark regardless of the phone's appearance setting, so the native
+ * widgets it hosts - the speed slider, the number inputs, scrollbars and the text
+ * caret - must be told to render dark too, or iOS draws them light on the dark
+ * glass panes. The map keeps its light tiles.
+ */
+html {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {
