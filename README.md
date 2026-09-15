@@ -61,15 +61,35 @@ Playback is foreground-only: hiding the tab pauses the simulation.
 The app is a PWA, so it can be installed to the Home Screen and then runs from the
 phone without the dev server.
 
-1. Serve the production build over **HTTPS** (a service worker will not install over
-   plain HTTP, so a LAN IP is not enough):
+1. Create a locally trusted certificate once (a service worker will not install over
+   plain HTTP, so a LAN IP alone is not enough):
+   ```bash
+   brew install mkcert
+   mkcert -install                       # adds a local CA to the system trust store
+   mkdir -p certs && cd certs
+   mkcert "$(hostname)" localhost 127.0.0.1 ::1
+   mv *-key.pem local-key.pem && mv *.pem local.pem
+   ```
+   `certs/` is gitignored, and `vite.config.ts` serves over HTTPS whenever those two
+   files exist - dev and preview both pick them up with no flags.
+2. Trust the CA on the phone. AirDrop `rootCA.pem` from `mkcert -CAROOT`, install the
+   profile under Settings -> General -> VPN & Device Management, then **enable full
+   trust** under Settings -> General -> About -> Certificate Trust Settings. Skipping
+   that last step leaves the certificate untrusted, and the service worker then never
+   registers.
+3. Build and serve:
    ```bash
    npm run build && npm run preview -- --host
    ```
-   then expose it with a stable HTTPS origin, e.g. `tailscale serve` or a tunnel.
-2. Open that URL in Safari, then Share -> **Add to Home Screen**.
-3. Launch from the new icon. The app shell is precached, so it starts without the
+4. Open the printed `https://<your-mac>.local:4173` URL in Safari, wait for the map to
+   render, then Share -> **Add to Home Screen**.
+5. Launch from the new icon. The app shell is precached, so it starts without the
    laptop and runs fullscreen with the notch and home-indicator insets applied.
+
+The `.local` hostname is preferred over the IP because a new DHCP lease would change
+the origin, and iOS treats a new origin as a different app: new service worker, empty
+cache and no saved token. Rebuilding needs the Mac reachable again; everyday launching
+does not.
 
 Being a secure context, the installed app can also hold a **screen wake lock** during
 playback, which plain-HTTP LAN access cannot.

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
@@ -9,6 +10,19 @@ import { VitePWA } from 'vite-plugin-pwa'
  * fails to start offline.
  */
 const PRECACHE_FILE_LIMIT_BYTES = 6 * 1024 * 1024
+
+const CERT_PATH = 'certs/local.pem'
+const KEY_PATH = 'certs/local-key.pem'
+
+/**
+ * A service worker only registers in a secure context, so installing the app on a
+ * phone needs HTTPS - a LAN IP over plain HTTP is not enough. Generate a trusted
+ * certificate with mkcert (see README) and both dev and preview pick it up; without
+ * those files the servers stay on plain HTTP as usual. The certs are gitignored.
+ */
+const localHttps = existsSync(CERT_PATH) && existsSync(KEY_PATH)
+  ? { cert: readFileSync(CERT_PATH), key: readFileSync(KEY_PATH) }
+  : undefined
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -50,4 +64,6 @@ export default defineConfig({
       },
     }),
   ],
+  server: { https: localHttps },
+  preview: { https: localHttps },
 })

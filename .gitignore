@@ -40,3 +40,6 @@ build/
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Local HTTPS certificates (mkcert); never commit private keys
+certs/
