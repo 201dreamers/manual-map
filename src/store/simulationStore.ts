@@ -535,6 +535,42 @@ let obdPollTimer: ReturnType<typeof setInterval> | null = null;
 let obdPollCycle = 0;
 /** AC-614: the arrival toast fires once per arrival, not once per sample. */
 let routeEndAnnounced = false;
+
+/**
+ * Poll diagnostics, console only (D-93).
+ *
+ * The first few exchanges are printed raw, because what the adapter actually sends back
+ * is the one thing no amount of reading the code will tell you, and then a tally every
+ * few seconds so a session can be watched without flooding the log. Bounded on purpose:
+ * this runs several times a second for the length of a drive.
+ */
+let pollReports = 0;
+const pollTally = { ok: 0, undecodable: 0, failed: 0 };
+const POLL_RAW_SAMPLES = 6;
+const POLL_TALLY_EVERY = 40;
+
+function reportPoll(outcome: 'ok' | 'undecodable' | 'failed', lines: string[]): void {
+  pollTally[outcome] += 1;
+  pollReports += 1;
+  if (pollReports <= POLL_RAW_SAMPLES) {
+    console.info(`[obd] poll ${pollReports} ${outcome}: ${JSON.stringify(lines)}`);
+    return;
+  }
+  if (pollReports % POLL_TALLY_EVERY === 0) {
+    console.info(
+      `[obd] polls ${pollReports}: ok=${pollTally.ok} ` +
+        `undecodable=${pollTally.undecodable} failed=${pollTally.failed}`,
+    );
+  }
+}
+
+/** Reset per session, so a reconnect prints fresh samples rather than staying quiet. */
+function resetPollDiagnostics(): void {
+  pollReports = 0;
+  pollTally.ok = 0;
+  pollTally.undecodable = 0;
+  pollTally.failed = 0;
+}
 /** Held outside React: it is a subscription handle, not something anything renders. */
 let locationWatcher: LocationWatcher | null = null;
 
@@ -1433,6 +1469,7 @@ export const useSimulationStore = create<SimulationState>()(
           obdClient = client;
           obdPollCycle = 0;
           routeEndAnnounced = false;
+          resetPollDiagnostics();
           // D-23: the stored calibration describes this car, so a session starts already
           // corrected. `isCalibrated` stays false until the odometer confirms it here.
           reckoning = {
@@ -1501,7 +1538,11 @@ export const useSimulationStore = create<SimulationState>()(
         if (!client || get().obd.status !== 'connected') return;
 
         try {
-          const speed = decodeSpeedKmh(await client.send(buildMode01Request(PID_SPEED)));
+          const lines = await client.send(buildMode01Request(PID_SPEED));
+          const speed = decodeSpeedKmh(lines);
+          // Console only. A swallowed failure and a genuinely stationary car produce
+          // the same zero on the dial, and there was no way to tell them apart.
+          reportPoll(speed === null ? 'undecodable' : 'ok', lines);
           if (speed !== null) get().applyObdSpeed(speed, nowMs());
 
           obdPollCycle += 1;
@@ -1509,10 +1550,11 @@ export const useSimulationStore = create<SimulationState>()(
             const odometer = decodeOdometerRaw(await client.send(buildMode01Request(PID_ODOMETER)));
             if (odometer !== null) get().applyObdOdometer(odometer);
           }
-        } catch {
+        } catch (error) {
           // A dropped reply is routine on a clone adapter. The gap guard in the
           // reckoner already accounts for the lost interval, so the next tick just
           // carries on rather than tearing the session down over one timeout.
+          reportPoll('failed', [userFacingMessage(error, 'no reply')]);
         }
       },
 
