@@ -1062,3 +1062,33 @@ Verify: `tests/cameras.test.ts` (71).
   a non-error stays `role="status"`.
 
 Verify: `tests/errors.test.ts` (65), `tests/layout.test.ts` (129).
+
+## 49. Menu and Settings Split
+
+* **D-83. The three overlay toggles move to Settings.** They are configuration, set once
+  and rarely changed, and the menu is for actions taken while using the map. Grouping
+  them under one heading also lets each carry a line of explanation, which a menu row
+  has no space for - and the cost difference between the free layers and the metered one
+  is exactly the thing that needed explaining.
+* **D-84. Refresh traffic stays in the menu.** It is an action, not a setting: it is
+  taken in the moment, on the road, and burying it two taps deep in a modal would defeat
+  the point of D-79 having just made it always available.
+* **D-85. The reverse-route entry is removed.** The `reverseRoute` action is kept: it is
+  covered by `store`, `lock` and `camera` suites and still works, it simply has no
+  button. Deleting tested behaviour was not asked for; if the capability is meant to go,
+  the action and those three suites' use of it go with it.
+
+### Acceptance Criteria
+
+* AC-760: Settings carries a Map overlays section with Traffic, Cameras and Incidents;
+  the incident row is absent with no TomTom key while the free two remain.
+* AC-761: the menu carries none of the three toggles and no reverse-route entry.
+* AC-762: the menu keeps Refresh traffic.
+
+Verify: `tests/cameras.test.ts` (81).
+
+### Note
+
+`vite.test.config.ts` now mirrors the app config's `__APP_BUILD__` define. Settings
+renders the build stamp, so any suite rendering that panel failed on a bare
+`ReferenceError` without it.

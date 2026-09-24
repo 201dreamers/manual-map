@@ -1,5 +1,20 @@
 import { useState } from 'react';
-import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, Loader2, Minus, Plus, RefreshCw, Ruler, X } from 'lucide-react';
+import {
+  Camera,
+  ChevronsLeft,
+  ChevronsRight,
+  FlipHorizontal2,
+  KeyRound,
+  Layers,
+  Loader2,
+  Minus,
+  Plus,
+  RefreshCw,
+  Ruler,
+  TriangleAlert,
+  Waypoints,
+  X,
+} from 'lucide-react';
 import { checkForUpdate, type UpdateCheck } from '../lib/appUpdate';
 import { displaySpeed, formatTimestamp, speedFromDisplay, speedLabel } from '../lib/format';
 import { validatePublicToken } from '../lib/token';
@@ -233,6 +248,50 @@ const UPDATE_MESSAGES: Record<UpdateCheck, string> = {
  * new build, so the check is offered by hand. A found update reloads the page itself
  * once the new worker activates.
  */
+/**
+ * One overlay toggle. Same shape as the mirror control, which is the established way a
+ * boolean reads in this panel: icon, label, and the state spelled out on the right
+ * rather than left to the colour alone.
+ */
+function OverlayRow({
+  label,
+  hint,
+  Icon,
+  on,
+  disabled,
+  onToggle,
+}: {
+  label: string;
+  hint: string;
+  Icon: typeof Layers;
+  on: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      aria-pressed={on}
+      className="flex min-h-[44px] w-full items-start gap-2 rounded-xl bg-slate-800 px-3 py-2 text-left text-sm text-slate-200 ring-1 ring-slate-700 active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100"
+    >
+      <Icon size={16} className={`mt-0.5 shrink-0 ${on ? 'text-sky-300' : 'text-slate-400'}`} />
+      <span className="min-w-0 flex-1">
+        {label}
+        <span className="block text-[11px] leading-snug text-slate-400">{hint}</span>
+      </span>
+      <span
+        className={`mt-0.5 shrink-0 rounded-lg px-2 py-0.5 text-[11px] font-medium ${
+          on ? 'bg-sky-500/20 text-sky-200' : 'bg-slate-800/70 text-slate-400'
+        }`}
+      >
+        {on ? 'On' : 'Off'}
+      </span>
+    </button>
+  );
+}
+
 function UpdateSection() {
   const [isChecking, setChecking] = useState(false);
   const [outcome, setOutcome] = useState<UpdateCheck | null>(null);
@@ -294,6 +353,13 @@ export function SettingsModal() {
   const setToken = useSimulationStore((state) => state.setToken);
   const removeToken = useSimulationStore((state) => state.removeToken);
   const pushToast = useSimulationStore((state) => state.pushToast);
+  const isCongestionOn = useSimulationStore((state) => state.traffic.isCongestionOn);
+  const isIncidentsOn = useSimulationStore((state) => state.traffic.isIncidentsOn);
+  const isCamerasOn = useSimulationStore((state) => state.traffic.isCamerasOn);
+  const trafficStatus = useSimulationStore((state) => state.traffic.status);
+  const toggleCongestionOverlay = useSimulationStore((state) => state.toggleCongestionOverlay);
+  const toggleIncidentsOverlay = useSimulationStore((state) => state.toggleIncidentsOverlay);
+  const toggleCamerasOverlay = useSimulationStore((state) => state.toggleCamerasOverlay);
 
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -368,6 +434,44 @@ export function SettingsModal() {
                 {controlsMirrored ? 'On' : 'Off'}
               </span>
             </button>
+          </section>
+        )}
+
+        {!isForced && (
+          <section className="mb-5">
+            <h3 className="mb-1 text-sm font-medium text-slate-200">Map overlays</h3>
+            <p className="mb-3 text-xs text-slate-400">
+              Traffic and cameras cost nothing to show, so they start on. Incidents are
+              fetched from TomTom against a daily allowance, so that one is opt-in and is
+              only fetched when a route is locked. Refresh traffic in the menu asks for
+              fresh data at any time.
+            </p>
+            <div className="flex flex-col gap-2">
+              <OverlayRow
+                label="Traffic"
+                hint="Live congestion along the roads, green through dark red."
+                Icon={Waypoints}
+                on={isCongestionOn}
+                onToggle={toggleCongestionOverlay}
+              />
+              <OverlayRow
+                label="Cameras"
+                hint="Speed cameras from OpenStreetMap along the route."
+                Icon={Camera}
+                on={isCamerasOn}
+                onToggle={toggleCamerasOverlay}
+              />
+              {/* D-67: no TomTom key means the row is not offered at all. */}
+              {trafficStatus !== 'unavailable' && (
+                <OverlayRow
+                  label="Incidents"
+                  hint="Accidents, closures and road works. Uses a metered TomTom allowance."
+                  Icon={TriangleAlert}
+                  on={isIncidentsOn}
+                  onToggle={toggleIncidentsOverlay}
+                />
+              )}
+            </div>
           </section>
         )}
 

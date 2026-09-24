@@ -72,21 +72,20 @@ otherwise readable by anyone who loads the page.
 | Action | How |
 |---|---|
 | Build a route | Tap the map: first tap is the start, second the destination, further taps append waypoints (max 25 points). |
-| Undo / reverse | In the top-left menu, together with Settings, History, Draw and Face north. |
+| Undo | In the top-left menu, together with Settings, History, Connect OBD, Refresh traffic, Draw and Face north. |
 | Stops | Tap the distance panel to open the stop list; it carries the stop count. |
 | My location | Toggles a blue marker showing where the device is, with an arrow for direction - GPS course while moving, compass at rest. It adds no stops and does not drive the cursor. The map flies to it on the first fix only. Once a route exists the button collapses to an icon; while the marker is on it shows a crossed icon, meaning the next press removes it. |
-| Reverse | Swaps start and destination, recalculates the road geometry, resets to 0 m. |
 | Step | Floating back / forward buttons at the bottom right of the map; the marker eases to the new position and repeated taps stack. Distance and glide length (default 700 ms) are configured per direction in Settings. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Tap the speed dial; moves at the speed it reads (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
 | Speed | The + and - buttons above the dial move the speed by a configurable increment, +10 and -5 km/h by default. Tapping the dial itself plays or pauses. |
-| Settings | The running build and an update check, control mirroring, the per-direction step distance and glide length, the per-direction speed increments, metric or imperial units, then the Mapbox token. |
+| Settings | The running build and an update check, control mirroring, the three map overlays, the per-direction step distance and glide length, the per-direction speed increments, metric or imperial units, then the Mapbox token. |
 | Mirror | Flips the whole interface for left-handed use - top controls and distance panel swap corners, the zoom pair follows the menu, both drawers open from the other side, and the thumb columns trade places; remembered across reloads. |
 | Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button; "Face north" in the menu rotates the map back to north-up. |
 | Overlay defaults | Congestion and cameras are **on out of the box**: neither costs anything per use, since congestion rides the map tiles already being fetched and cameras come from keyless OpenStreetMap. TomTom incidents are metered against a daily quota, so that layer stays off until switched on. A layer switched off by hand stays off across reloads. |
-| Traffic | Menu -> Show traffic paints live congestion over the roads, green through dark red. It comes from the Mapbox tileset the map already loads, so it costs no extra request and needs no second key. |
-| Incidents | Menu -> Show incidents marks accidents, closures, road works and weather hazards from TomTom. Red is blocking, amber is slow, blue is weather. Needs `VITE_TOMTOM_API_KEY`; without one the menu entry is not shown and nothing else changes. |
+| Traffic | Settings -> Map overlays -> Traffic paints live congestion over the roads, green through dark red. It comes from the Mapbox tileset the map already loads, so it costs no extra request and needs no second key. |
+| Incidents | Settings -> Map overlays -> Incidents marks accidents, closures, road works and weather hazards from TomTom. Red is blocking, amber is slow, blue is weather. Needs `VITE_TOMTOM_API_KEY`; without one the menu entry is not shown and nothing else changes. |
 | Refreshing | Incidents are fetched when the route is locked, or when Play locks it, then once every 30 minutes while it stays locked; cameras are fetched once per route. Rebuilding the route invalidates both. Menu -> Refresh traffic forces both by hand and is always offered, doing nothing for a layer that is off. Panning and zooming never fetch. |
-| Cameras | Menu -> Show cameras marks speed cameras from OpenStreetMap along the route: a dark disc with a white ring, carrying the posted limit where OSM records one. No key needed, and it is the only hazard layer with data in Ukraine. Fetched once per route; Overpass being unavailable leaves the layer empty and is not reported. |
+| Cameras | Settings -> Map overlays -> Cameras marks speed cameras from OpenStreetMap along the route: a dark disc with a white ring, carrying the posted limit where OSM records one. No key needed, and it is the only hazard layer with data in Ukraine. Fetched once per route; Overpass being unavailable leaves the layer empty and is not reported. |
 | History | Every calculated route is saved to `localStorage` and can be reloaded, deleted, or cleared from the side drawer. |
 
 Playback is foreground-only: hiding the tab pauses the simulation.

@@ -22,5 +22,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["tests", "scripts"]
+  /*
+    `src/vite-env.d.ts` carries the ambient `__APP_BUILD__` declaration. Ambient .d.ts
+    files are not pulled in transitively through imports the way modules are, so the
+    suite that renders Settings needs it named here explicitly.
+  */
+  "include": ["tests", "scripts", "src/vite-env.d.ts"]
 }

@@ -270,6 +270,50 @@ check('AC-737 the manual refresh fetches despite a warm cache', calls === 3, `${
   check('AC-745 but disabled with no route to scope it to', tag.includes('disabled=""'), tag);
 }
 
+/* ---------------- the overlay toggles live in Settings ---------------- */
+
+{
+  const { createElement } = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { SettingsModal } = await import('../src/components/SettingsModal');
+  const { MenuButton } = await import('../src/components/MenuButton');
+
+  const initial = useSimulationStore.getInitialState();
+  const renderSettings = (over: Record<string, unknown> = {}) => {
+    Object.assign(initial, useSimulationStore.getState(), {
+      isSettingsOpen: true,
+      mapboxToken: 'pk.' + 'a'.repeat(60),
+      traffic: { ...useSimulationStore.getState().traffic, ...(over.traffic ?? {}) },
+      ...over,
+    });
+    return renderToStaticMarkup(createElement(SettingsModal));
+  };
+
+  // This suite never sets a TomTom key, so the store starts `unavailable`; the
+  // key-present case has to be asked for explicitly.
+  const settings = renderSettings({ traffic: { status: 'idle' } });
+  check('AC-760 the overlay section is in Settings', settings.includes('Map overlays'));
+  check('AC-760 traffic moved there', settings.includes('>Traffic<'));
+  check('AC-760 cameras moved there', settings.includes('>Cameras<'));
+  check('AC-760 incidents moved there', settings.includes('>Incidents<'));
+
+  // D-67 still holds in the new home: no key, no incident row.
+  const noKey = renderSettings({ traffic: { status: 'unavailable', isIncidentsOn: false } });
+  check('AC-760 with no TomTom key the incident row is not offered',
+    !noKey.includes('>Incidents<'));
+  check('AC-760 while the free layers stay',
+    noKey.includes('>Traffic<') && noKey.includes('>Cameras<'));
+
+  Object.assign(initial, useSimulationStore.getState(), { isMenuOpen: true });
+  const menu = renderToStaticMarkup(createElement(MenuButton));
+  check('AC-761 the menu no longer carries the overlay toggles',
+    !menu.includes('Show traffic') && !menu.includes('Show cameras') &&
+      !menu.includes('Show incidents'));
+  check('AC-761 nor the reverse-route entry', !menu.includes('Reverse route'));
+  check('AC-762 but it keeps the refresh', menu.includes('Refresh traffic'));
+  check('AC-761 and its remaining entries', menu.includes('Settings') && menu.includes('History'));
+}
+
 /* ---------------- default policy and its migration ---------------- */
 
 {

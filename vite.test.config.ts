@@ -9,6 +9,9 @@ const entries = Object.fromEntries(
 );
 
 export default defineConfig({
+  // Mirrors the app config's define. Settings renders the build stamp, so a suite that
+  // renders that panel fails on a bare ReferenceError without it.
+  define: { __APP_BUILD__: JSON.stringify('test') },
   // Deliberately point at a directory with no .env files: token-resolution tests
   // must not depend on whichever token the developer happens to have locally.
   // The live suite receives its token through process.env.MB_TOKEN instead.
