@@ -5,6 +5,7 @@ const SETTINGS_KEY = 'manual-map:settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
   mapboxAccessToken: null,
+  tomtomApiKey: null,
   controlsMirrored: false,
   // A layer is on by default when showing it costs nothing per use. Congestion rides
   // the map tiles that are already being fetched, and cameras come from keyless OSM, so
@@ -111,8 +112,10 @@ export const settingsRepository = {
   read(): AppSettings {
     const parsed = readJson<Partial<AppSettings>>(SETTINGS_KEY, DEFAULT_SETTINGS);
     const token = parsed.mapboxAccessToken;
+    const tomtom = parsed.tomtomApiKey;
     return {
       mapboxAccessToken: typeof token === 'string' && token ? token : null,
+      tomtomApiKey: typeof tomtom === 'string' && tomtom ? tomtom : null,
       controlsMirrored: parsed.controlsMirrored === true,
       // Read against the default rather than against `=== true`, so that a settings
       // blob written before these keys existed - or by a build that did not have them -

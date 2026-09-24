@@ -58,9 +58,14 @@ The speed-camera layer comes from OpenStreetMap instead, which does have Ukraini
 
 ### TomTom key (optional)
 
-The incident overlay reads `VITE_TOMTOM_API_KEY` from `.env` / `.env.local`. It is
-entirely optional: with no key the incident menu entries are not rendered, no request is
-ever made, and every other feature behaves exactly as before.
+The incident overlay resolves its key the same way the Mapbox token does:
+
+1. Key saved in Settings -> TomTom key (kept in `localStorage`)
+2. `VITE_TOMTOM_API_KEY` from `.env` / `.env.local`
+
+It is entirely optional: with no key the incident row is not offered, no request is ever
+made, and every other feature behaves exactly as before. Clearing the key switches the
+incident layer off rather than leaving it on with nothing behind it.
 
 Both keys are **inlined into the built bundle** by Vite, which is unavoidable for a
 browser app with no server. Before deploying anywhere public, restrict the Mapbox token
@@ -78,7 +83,7 @@ otherwise readable by anyone who loads the page.
 | Step | Floating back / forward buttons at the bottom right of the map; the marker eases to the new position and repeated taps stack. Distance and glide length (default 700 ms) are configured per direction in Settings. Forward (default 250 m) and backward (default 125 m) distances are configured independently in Settings and are clamped to both route ends. |
 | Play | Tap the speed dial; moves at the speed it reads (0-180 km/h, km/h or mph display); pauses automatically at the route end. |
 | Speed | The + and - buttons above the dial move the speed by a configurable increment, +10 and -5 km/h by default. Tapping the dial itself plays or pauses. |
-| Settings | The running build and an update check, control mirroring, the three map overlays, the per-direction step distance and glide length, the per-direction speed increments, metric or imperial units, then the Mapbox token. |
+| Settings | The running build and an update check, control mirroring, the three map overlays, the per-direction step distance and glide length, the per-direction speed increments, metric or imperial units, then the Mapbox and TomTom keys. |
 | Mirror | Flips the whole interface for left-handed use - top controls and distance panel swap corners, the zoom pair follows the menu, both drawers open from the other side, and the thumb columns trade places; remembered across reloads. |
 | Camera | Follows the vehicle heading-up. Dragging, zooming or rotating suspends tracking and shows a Recenter button; "Face north" in the menu rotates the map back to north-up. |
 | Overlay defaults | Congestion and cameras are **on out of the box**: neither costs anything per use, since congestion rides the map tiles already being fetched and cameras come from keyless OpenStreetMap. TomTom incidents are metered against a daily quota, so that layer stays off until switched on. A layer switched off by hand stays off across reloads. |

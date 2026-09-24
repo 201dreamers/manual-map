@@ -1,4 +1,5 @@
 import { AppError } from './errors';
+import { settingsRepository } from './storage';
 import type { BoundingBox } from './geocoding';
 import type { CoordinateTuple } from '../types/domain';
 
@@ -336,10 +337,36 @@ export function setTrafficKey(key: string | null): void {
   keyOverride = key;
 }
 
+/**
+ * Loose on purpose. TomTom does not publish a key format the way Mapbox does with its
+ * `pk.` prefix, so anything beyond "looks like a key rather than a paste accident" would
+ * be inventing a rule and rejecting valid keys. Whitespace is the one thing worth
+ * catching, because it is what a copy from a web page actually produces.
+ */
+export function validateTrafficKey(key: string): { ok: true } | { ok: false; reason: string } {
+  const trimmed = key.trim();
+  if (!trimmed) return { ok: false, reason: 'Key is required.' };
+  if (/\s/.test(trimmed)) return { ok: false, reason: 'The key cannot contain spaces.' };
+  if (trimmed.length < 16) return { ok: false, reason: 'That key looks too short to be valid.' };
+  if (trimmed.length > 128) return { ok: false, reason: 'That key looks too long to be valid.' };
+  return { ok: true };
+}
+
+/**
+ * Resolved the same way as the Mapbox token (FR-6.1): what was saved in Settings wins
+ * over what was built into the bundle, so a key can be changed on the phone without a
+ * rebuild. Absent from both is the normal case and is not an error.
+ */
 export function resolveTrafficKey(): string | null {
   if (keyOverride !== null) return keyOverride;
+
+  const stored = settingsRepository.read().tomtomApiKey;
+  if (stored && validateTrafficKey(stored).ok) return stored.trim();
+
   const key = import.meta.env.VITE_TOMTOM_API_KEY;
-  return typeof key === 'string' && key.trim() ? key.trim() : null;
+  if (typeof key === 'string' && validateTrafficKey(key).ok) return key.trim();
+
+  return null;
 }
 
 export async function fetchTrafficIncidents(

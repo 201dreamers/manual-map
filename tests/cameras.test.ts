@@ -305,6 +305,13 @@ check('AC-737 the manual refresh fetches despite a warm cache', calls === 3, `${
     noKey.includes('>Traffic<') && noKey.includes('>Cameras<'));
 
   Object.assign(initial, useSimulationStore.getState(), { isMenuOpen: true });
+  check('AC-774 the TomTom key field is in Settings',
+    settings.includes('TomTom key') && settings.includes('aria-label="TomTom API key"'));
+  check('AC-774 offered even with no key yet, since that is how one is added',
+    noKey.includes('aria-label="TomTom API key"'));
+  check('AC-774 and it says the layer is optional',
+    settings.includes('Optional.'), 'optional wording');
+
   const menu = renderToStaticMarkup(createElement(MenuButton));
   check('AC-761 the menu no longer carries the overlay toggles',
     !menu.includes('Show traffic') && !menu.includes('Show cameras') &&

@@ -18,6 +18,7 @@ import {
 import { checkForUpdate, type UpdateCheck } from '../lib/appUpdate';
 import { displaySpeed, formatTimestamp, speedFromDisplay, speedLabel } from '../lib/format';
 import { validatePublicToken } from '../lib/token';
+import { validateTrafficKey } from '../lib/traffic';
 import { GLASS_PANEL, Z_MODAL, INLINE_ERROR } from './ui';
 import {
   MAX_SPEED_STEP_KMH,
@@ -289,6 +290,89 @@ function OverlayRow({
         {on ? 'On' : 'Off'}
       </span>
     </button>
+  );
+}
+
+/**
+ * The TomTom key, alongside the Mapbox one. Optional throughout: with no key the
+ * incident layer is simply not offered, which is why this says so rather than presenting
+ * an empty field as something missing.
+ *
+ * Kept as its own component so its draft state does not sit in the modal beside the
+ * Mapbox draft, where the two were one rename away from being crossed.
+ */
+function TomtomKeyField() {
+  const saved = useSimulationStore((state) => state.traffic.status !== 'unavailable');
+  const setTomtomKey = useSimulationStore((state) => state.setTomtomKey);
+  const pushToast = useSimulationStore((state) => state.pushToast);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const save = () => {
+    const outcome = validateTrafficKey(draft);
+    if (!outcome.ok) {
+      setError(outcome.reason);
+      return;
+    }
+    setError(null);
+    setTomtomKey(draft);
+    setDraft('');
+    pushToast('success', 'TomTom key saved.');
+  };
+
+  return (
+    <section className="border-t border-slate-800 pt-4">
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-200">
+        <KeyRound size={16} /> TomTom key
+      </h3>
+      <p className="mb-3 text-xs leading-relaxed text-slate-400">
+        Optional. Enables the incident overlay: accidents, closures and road works. Without
+        one, that layer is not offered and nothing else changes. Stored only in this
+        browser. Restrict the key by referrer in the TomTom console before sharing a build.
+      </p>
+
+      <input
+        type="text"
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(null);
+        }}
+        placeholder="Paste your TomTom API key"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        aria-label="TomTom API key"
+        className="min-h-[44px] w-full rounded-xl bg-slate-800 px-3 font-mono text-sm text-slate-100 ring-1 ring-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+      />
+
+      {error && <p className={`mt-2 ${INLINE_ERROR}`}>{error}</p>}
+
+      {saved && !error && <p className="mt-2 text-xs text-emerald-400">A key is active.</p>}
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={save}
+          className="flex min-h-[44px] flex-1 items-center justify-center rounded-xl bg-sky-500 text-sm font-medium text-slate-950 active:scale-95"
+        >
+          Save key
+        </button>
+        {saved && (
+          <button
+            type="button"
+            onClick={() => {
+              setTomtomKey(null);
+              setDraft('');
+              pushToast('info', 'TomTom key cleared.');
+            }}
+            className="flex min-h-[44px] items-center justify-center rounded-xl bg-slate-800 px-4 text-sm text-slate-200 ring-1 ring-slate-700 active:scale-95"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -564,6 +648,8 @@ export function SettingsModal() {
             )}
           </div>
         </section>
+
+        {!isForced && <TomtomKeyField />}
 
       </div>
     </div>

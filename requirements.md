@@ -1092,3 +1092,34 @@ Verify: `tests/cameras.test.ts` (81).
 `vite.test.config.ts` now mirrors the app config's `__APP_BUILD__` define. Settings
 renders the build stamp, so any suite rendering that panel failed on a bare
 `ReferenceError` without it.
+
+## 50. TomTom Key in Settings
+
+* **D-86. The TomTom key resolves like the Mapbox token (FR-6.1):** what was saved in
+  Settings wins over what was built into the bundle. Without this the key could only be
+  changed by rebuilding, which is useless on a phone that is already installed to the
+  Home Screen.
+* **D-87. Validation is deliberately loose.** TomTom publishes no key format the way
+  Mapbox does with `pk.`, so anything stricter than "not empty, no whitespace, plausible
+  length" would be inventing a rule and rejecting valid keys. Whitespace is the one
+  thing worth catching, because it is what copying from a web page produces.
+* **D-88. Saving or clearing a key re-gates the incident surface.** `traffic.status` is
+  decided at store creation, so without this a key saved in Settings would leave the
+  layer reporting `unavailable` until the next reload. Clearing the key takes the layer
+  down with it and forgets the remembered preference, rather than leaving it switched on
+  with no source behind it.
+* **D-89. An invalid stored key resolves to null rather than being sent.** A corrupted
+  or hand-edited value would otherwise go out as a query parameter and come back 403.
+
+### Acceptance Criteria
+
+* AC-770: empty, whitespace-only, spaced, too-short and too-long keys are rejected; a
+  32-character key is accepted, with surrounding whitespace tolerated.
+* AC-771: a key saved in Settings wins over the environment and is trimmed; an invalid
+  stored key resolves to null.
+* AC-772: saving a key moves the surface from `unavailable` to `idle` and persists it.
+* AC-773: clearing the key returns the surface to `unavailable`, switches the layer off,
+  clears its data, forgets the preference, and leaves the toggle inert.
+* AC-774: the key field is rendered in Settings whether or not a key is present.
+
+Verify: `tests/traffic.test.ts` (111), `tests/cameras.test.ts` (84).

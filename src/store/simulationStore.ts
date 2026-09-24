@@ -341,6 +341,8 @@ export interface SimulationState {
 
   setToken: (token: string) => void;
   removeToken: () => void;
+  /** Saves or clears the TomTom key, and re-gates the incident surface on the result. */
+  setTomtomKey: (key: string | null) => void;
   openSettings: (open: boolean) => void;
   openHistory: (open: boolean) => void;
   openPlan: (open: boolean) => void;
@@ -814,6 +816,36 @@ export const useSimulationStore = create<SimulationState>()(
       setToken: (token) => {
         persistToken(token);
         set({ mapboxToken: token.trim(), isSettingsOpen: false });
+      },
+
+      setTomtomKey: (key) => {
+        settingsRepository.update({ tomtomApiKey: key === null ? null : key.trim() });
+        // `status` was decided at store creation from whatever key existed then, so it
+        // has to be re-derived here or saving a key would leave the incident surface
+        // reporting `unavailable` until the next reload.
+        const hasKey = resolveTrafficKey() !== null;
+        const traffic = get().traffic;
+        if (hasKey) {
+          set({ traffic: { ...traffic, status: traffic.status === 'unavailable' ? 'idle' : traffic.status } });
+          return;
+        }
+        // The key went away, so the layer goes with it rather than being left on with
+        // nothing behind it.
+        pendingIncidentRequest?.abort();
+        pendingIncidentRequest = null;
+        stopIncidentRefreshTimer();
+        settingsRepository.update({ incidentsOverlay: false });
+        set({
+          traffic: {
+            ...traffic,
+            status: 'unavailable',
+            isIncidentsOn: false,
+            incidents: [],
+            error: null,
+            fetchedRouteKey: null,
+            fetchedAt: null,
+          },
+        });
       },
 
       removeToken: () => {

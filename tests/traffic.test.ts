@@ -358,4 +358,78 @@ check('AC-718 the manual refresh fetches despite a warm cache', calls === 3, `${
   setTrafficKey('test-key');
 }
 
+/* ---------------- the key can be entered in Settings ---------------- */
+
+{
+  const { validateTrafficKey, resolveTrafficKey, setTrafficKey: setOverride } =
+    await import('../src/lib/traffic');
+  const { settingsRepository } = await import('../src/lib/storage');
+
+  check('AC-770 an empty key is rejected', !validateTrafficKey('').ok);
+  check('AC-770 whitespace only is rejected', !validateTrafficKey('   ').ok);
+  check('AC-770 a key with a space is rejected', !validateTrafficKey('abc def ghijklmnop').ok);
+  check('AC-770 a short key is rejected', !validateTrafficKey('abc123').ok);
+  check('AC-770 an overlong key is rejected', !validateTrafficKey('a'.repeat(129)).ok);
+  check('AC-770 a realistic 32-character key is accepted',
+    validateTrafficKey('a'.repeat(32)).ok);
+  check('AC-770 surrounding whitespace is tolerated',
+    validateTrafficKey('  ' + 'a'.repeat(32) + '  ').ok);
+
+  // The override has to stand down for the resolution order to be observable.
+  setOverride(null);
+  settingsRepository.update({ tomtomApiKey: null });
+  check('AC-771 no stored key and no env key resolves to null', resolveTrafficKey() === null);
+
+  settingsRepository.update({ tomtomApiKey: 'b'.repeat(32) });
+  check('AC-771 a key saved in Settings is used', resolveTrafficKey() === 'b'.repeat(32));
+  check('AC-771 and is trimmed', (() => {
+    settingsRepository.update({ tomtomApiKey: '  ' + 'c'.repeat(32) + '  ' });
+    return resolveTrafficKey() === 'c'.repeat(32);
+  })());
+
+  // A corrupted stored value must not be handed to the API as a query parameter.
+  settingsRepository.update({ tomtomApiKey: 'nope' });
+  check('AC-771 an invalid stored key is ignored rather than sent',
+    resolveTrafficKey() === null);
+
+  settingsRepository.update({ tomtomApiKey: null });
+  setOverride('test-key');
+}
+
+{
+  // Saving a key has to re-gate the surface, which was decided at store creation.
+  const { settingsRepository } = await import('../src/lib/storage');
+  const { setTrafficKey: setOverride } = await import('../src/lib/traffic');
+  setOverride(null);
+  settingsRepository.update({ tomtomApiKey: null });
+
+  s().setTomtomKey(null);
+  check('AC-772 with no key the surface reports unavailable',
+    s().traffic.status === 'unavailable', s().traffic.status);
+
+  s().setTomtomKey('d'.repeat(32));
+  check('AC-772 saving a key makes the incident surface available',
+    s().traffic.status === 'idle', s().traffic.status);
+  check('AC-772 and the key is persisted',
+    settingsRepository.read().tomtomApiKey === 'd'.repeat(32));
+
+  s().toggleIncidentsOverlay();
+  check('the layer can then be switched on', s().traffic.isIncidentsOn);
+
+  // Clearing the key must take the layer down with it, not leave it on with no source.
+  s().setTomtomKey(null);
+  check('AC-773 clearing the key returns the surface to unavailable',
+    s().traffic.status === 'unavailable');
+  check('AC-773 and switches the layer off', !s().traffic.isIncidentsOn);
+  check('AC-773 and clears what it had', s().traffic.incidents.length === 0);
+  check('AC-773 and does not leave it remembered for the next launch',
+    settingsRepository.read().incidentsOverlay === false);
+  check('AC-773 and the toggle is inert while unavailable', (() => {
+    s().toggleIncidentsOverlay();
+    return !s().traffic.isIncidentsOn;
+  })());
+
+  setOverride('test-key');
+}
+
 report('traffic');

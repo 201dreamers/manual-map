@@ -56,6 +56,12 @@ export interface SimulationConfig {
 
 export interface AppSettings {
   mapboxAccessToken: string | null;
+  /**
+   * TomTom key for the incident overlay, entered in Settings. Optional in every sense:
+   * the app runs without one, and it is only ever read to decide whether to offer the
+   * incident layer at all.
+   */
+  tomtomApiKey: string | null;
   /** Mirrors the bottom control clusters for left-handed use. */
   controlsMirrored: boolean;
   /**
