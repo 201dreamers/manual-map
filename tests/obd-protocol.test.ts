@@ -306,12 +306,31 @@ import {
   check('AC-780 and write from the RX characteristic',
     nusChannel?.write.uuid.startsWith('6e400002') === true, nusChannel?.write.uuid);
 
-  // The same split in the 16-bit vendor range most ELM327 clones copy.
-  const vendor = [
+  /*
+    The real thing. Read off a Konnwei KW906 on 2026-09-24, service
+    0000fff0-0000-1000-8000-00805f9b34fb:
+
+      fff1  notify=true  write=false  writeNoResponse=false
+      fff2  notify=false write=false  writeNoResponse=true
+
+    Note what this says about the original bug: fff0 was in the allowlist from the
+    start, so the service was always visible. The only thing wrong was requiring one
+    characteristic to carry both properties, which this adapter - and the whole 16-bit
+    vendor convention it follows - never does.
+  */
+  const kw906 = [
     make('0000fff1-0000-1000-8000-00805f9b34fb', true, false, false),
     make('0000fff2-0000-1000-8000-00805f9b34fb', false, false, true),
   ];
-  check('AC-780 a split 16-bit vendor service is accepted', findSerialChannel(vendor) !== null);
+  const kw906Channel = findSerialChannel(kw906);
+  check('AC-783 the measured KW906 layout is accepted', kw906Channel !== null);
+  check('AC-783 reading from fff1',
+    kw906Channel?.notify.uuid.startsWith('0000fff1') === true, kw906Channel?.notify.uuid);
+  check('AC-783 writing to fff2',
+    kw906Channel?.write.uuid.startsWith('0000fff2') === true, kw906Channel?.write.uuid);
+  check('AC-783 and the write end is write-without-response, so writeValue would fail',
+    kw906Channel?.write.properties.writeWithoutResponse === true &&
+      kw906Channel?.write.properties.write === false);
 
   // A combined characteristic still wins, so a control characteristic is not paired by
   // mistake when the adapter offers a proper bridge.

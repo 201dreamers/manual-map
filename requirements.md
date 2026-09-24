@@ -1128,7 +1128,16 @@ Verify: `tests/traffic.test.ts` (111), `tests/cameras.test.ts` (84).
 
 Measured against a Konnwei KW906 on an iPhone, 2026-09-24.
 
-* **D-90. The service allowlist is the first suspect, not the adapter.** Web Bluetooth
+* **D-90 [corrected]. The allowlist was not this adapter's problem.** The KW906 was
+  later measured as using service `0000fff0`, which was in the allowlist from the start,
+  so its services were always visible. The widened list and the Nordic UART entry remain
+  worthwhile for other adapters, but the KW906 failure was entirely D-91. The earlier
+  reading - that the error changing proved the allowlist had been the fault - was wrong:
+  the message changed because one sentence had been split into two, not because
+  discovery started working.
+
+  The original note, still true in general:
+  **the service allowlist is a first suspect, not the adapter.** Web Bluetooth
   returns only services named in `optionalServices` and offers no way to enumerate what
   a device actually has, so an unlisted service is indistinguishable from an adapter
   with no services at all. A native app has no allowlist, which is why the same KW906
@@ -1194,3 +1203,27 @@ gate; the ELM327 conversation past it has never run against real hardware.
 * AC-793: a bus that ignores `0100` is not probed further.
 
 Verify: `tests/obd-protocol.test.ts` (55), `tests/obd-store.test.ts` (41).
+
+## 53. KW906 Field Measurement
+
+Read from the adapter on 2026-09-24, via the console diagnostics of D-93.
+
+```
+device: KONNWEI
+service 0000fff0-0000-1000-8000-00805f9b34fb
+  char 0000fff1  notify=true  write=false  writeNoResponse=false
+  char 0000fff2  notify=false write=false  writeNoResponse=true
+```
+
+This is the layout D-91 describes: the read and write ends are separate characteristics
+and neither carries both properties. It is now a named regression case, AC-783, rather
+than a hypothetical.
+
+It also settles D-92: `fff2` advertises only `writeWithoutResponse`, so calling
+`writeValue` on it would be rejected. The previous code happened to call the right method
+for the wrong reason - it preferred without-response whenever the method existed, which is
+always - and would have broken on an adapter that advertises only `write`.
+
+Outstanding: the connection now succeeds and the odometer reports absent. Whether the
+confirmation probe of D-94 changes that on this car, and whether speed tracks correctly
+over a real drive, are both still unmeasured.
