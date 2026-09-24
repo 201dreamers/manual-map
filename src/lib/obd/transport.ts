@@ -14,6 +14,14 @@
  * honestly claim to hand out lines.
  */
 
+import { AppError } from '../errors';
+
+/**
+ * An OBD failure whose message was written for the driver rather than for a log. Only
+ * these reach the interface; a DOMException from the Bluetooth stack does not.
+ */
+export class ObdError extends AppError {}
+
 export type TransportState = 'disconnected' | 'connecting' | 'connected';
 
 export interface ObdTransport {
@@ -90,7 +98,7 @@ export function isWebBluetoothAvailable(): boolean {
 
 function getBluetooth(): BluetoothLike {
   const bluetooth = (navigator as unknown as { bluetooth?: BluetoothLike }).bluetooth;
-  if (!bluetooth) throw new Error('Web Bluetooth is unavailable in this browser.');
+  if (!bluetooth) throw new ObdError('Web Bluetooth is unavailable in this browser.');
   return bluetooth;
 }
 
@@ -141,7 +149,7 @@ export function createWebBluetoothTransport(): ObdTransport {
         device.addEventListener('gattserverdisconnected', handleDisconnect);
 
         const server = await device.gatt?.connect();
-        if (!server) throw new Error('The adapter exposed no GATT server.');
+        if (!server) throw new ObdError('The adapter did not accept the connection.');
 
         const services = await server.getPrimaryServices();
         for (const service of services) {
@@ -152,7 +160,7 @@ export function createWebBluetoothTransport(): ObdTransport {
           }
         }
         if (!characteristic) {
-          throw new Error('No notify-and-write characteristic found on the adapter.');
+          throw new ObdError('This does not look like a supported OBD adapter.');
         }
 
         await characteristic.startNotifications();
@@ -171,7 +179,7 @@ export function createWebBluetoothTransport(): ObdTransport {
     },
 
     async write(command: string) {
-      if (!characteristic) throw new Error('Not connected.');
+      if (!characteristic) throw new ObdError('Not connected.');
       // The ELM327 terminates every command with a carriage return, not a newline.
       const payload = encoder.encode(`${command}\r`);
       if (characteristic.writeValueWithoutResponse) {

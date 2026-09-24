@@ -3,10 +3,29 @@ import { useSimulationStore } from '../store/simulationStore';
 import { Z_TOAST } from './ui';
 import type { ToastKind } from '../types/domain';
 
+/*
+  These sit over a live map, which can be anything from a white motorway to a dark park,
+  so a 15% tint was legible against some tiles and invisible against others - an error is
+  the one message that must never be missed. Each kind is now an opaque fill with white
+  text and a drop shadow to lift it off the map, rather than a wash that borrows the
+  map's own colour. Error carries the strongest fill of the three.
+*/
 const STYLES: Record<ToastKind, { className: string; Icon: typeof Info }> = {
-  error: { className: 'bg-red-500/15 text-red-200 ring-red-500/40', Icon: AlertCircle },
-  info: { className: 'bg-slate-800 text-slate-200 ring-slate-600', Icon: Info },
-  success: { className: 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/40', Icon: CheckCircle2 },
+  error: {
+    className:
+      'bg-red-600 text-white ring-red-300/70 [box-shadow:0_10px_30px_-8px_rgb(2_6_23/0.85)]',
+    Icon: AlertCircle,
+  },
+  info: {
+    className:
+      'bg-slate-800 text-slate-100 ring-slate-500/70 [box-shadow:0_10px_30px_-10px_rgb(2_6_23/0.8)]',
+    Icon: Info,
+  },
+  success: {
+    className:
+      'bg-emerald-600 text-white ring-emerald-300/70 [box-shadow:0_10px_30px_-10px_rgb(2_6_23/0.8)]',
+    Icon: CheckCircle2,
+  },
 };
 
 export function ToastStack() {
@@ -26,11 +45,11 @@ export function ToastStack() {
         return (
           <div
             key={toast.id}
-            role="status"
-            className={`pointer-events-auto flex items-start gap-2 rounded-xl px-3 py-2.5 text-sm ring-1 backdrop-blur ${className}`}
+            role={toast.kind === 'error' ? 'alert' : 'status'}
+            className={`pointer-events-auto flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 ${className}`}
           >
-            <Icon size={18} className="mt-0.5 shrink-0" />
-            <p className="flex-1">{toast.text}</p>
+            <Icon size={20} className="mt-px shrink-0" />
+            <p className="flex-1 leading-snug">{toast.text}</p>
             <button
               type="button"
               onClick={() => dismissToast(toast.id)}

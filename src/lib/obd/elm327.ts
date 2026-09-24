@@ -4,6 +4,7 @@
  * against a scripted fake.
  */
 
+import { ObdError } from './transport';
 import type { ObdTransport } from './transport';
 import {
   PID_ODOMETER,
@@ -145,7 +146,7 @@ export function createElm327(transport: ObdTransport): Elm327Client {
     if (!pending) return;
     const dropped = pending;
     settle(dropped);
-    dropped.reject(new Error('The adapter disconnected mid-command.'));
+    dropped.reject(new ObdError('The adapter disconnected mid-command.'));
   });
 
   function send(command: string, timeoutMs = COMMAND_TIMEOUT_MS): Promise<string[]> {
@@ -153,7 +154,9 @@ export function createElm327(transport: ObdTransport): Elm327Client {
       new Promise<string[]>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending = null;
-          reject(new Error(`No reply to ${command} within ${timeoutMs} ms.`));
+          // The command and the timeout belong in a log, never on screen: this
+          // message is shown to the driver verbatim, and an AT string is noise.
+          reject(new ObdError('The adapter stopped responding.'));
         }, timeoutMs);
 
         pending = { command, lines: [], resolve, reject, timer };

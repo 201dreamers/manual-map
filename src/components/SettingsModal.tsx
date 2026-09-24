@@ -3,7 +3,7 @@ import { ChevronsLeft, ChevronsRight, FlipHorizontal2, KeyRound, Loader2, Minus,
 import { checkForUpdate, type UpdateCheck } from '../lib/appUpdate';
 import { displaySpeed, formatTimestamp, speedFromDisplay, speedLabel } from '../lib/format';
 import { validatePublicToken } from '../lib/token';
-import { GLASS_PANEL, Z_MODAL } from './ui';
+import { GLASS_PANEL, Z_MODAL, INLINE_ERROR } from './ui';
 import {
   MAX_SPEED_STEP_KMH,
   MAX_STEP_ANIMATION_MS,
@@ -429,7 +429,7 @@ export function SettingsModal() {
             className="min-h-[44px] w-full rounded-xl bg-slate-800 px-3 font-mono text-sm text-slate-100 ring-1 ring-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
           />
 
-          {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+          {error && <p className={`mt-2 ${INLINE_ERROR}`}>{error}</p>}
 
           {mapboxToken && !error && (
             <p className="mt-2 truncate text-xs text-emerald-400">

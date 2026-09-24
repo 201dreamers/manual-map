@@ -163,6 +163,7 @@ src/
     directions.ts          # Mapbox Directions API client
     storage.ts             # typed localStorage repositories
     token.ts               # token resolution and pk./sk. validation
+    errors.ts              # the boundary between what failed and what the driver is told
     format.ts              # distance, speed, ETA, coordinate formatting
     traffic.ts             # TomTom incidents: fetch policy, parsing, GeoJSON for the layers
     cameras.ts             # OSM speed cameras over Overpass: corridor query, parsing, mirrors

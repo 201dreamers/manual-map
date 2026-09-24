@@ -1,10 +1,11 @@
+import { AppError } from './errors';
 import type { CoordinateTuple } from '../types/domain';
 
 const DIRECTIONS_ENDPOINT = 'https://api.mapbox.com/directions/v5/mapbox/driving';
 /** Mapbox Directions accepts at most 25 coordinates per request. */
 export const MAX_ROUTE_POINTS = 25;
 
-export class DirectionsError extends Error {}
+export class DirectionsError extends AppError {}
 
 export const NO_ROUTE_MESSAGE = 'Unable to calculate road route between selected points';
 

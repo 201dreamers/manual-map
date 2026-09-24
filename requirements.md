@@ -1025,3 +1025,40 @@ suites assert.
   locked; it is disabled only when there is no route.
 
 Verify: `tests/cameras.test.ts` (71).
+
+## 48. Error Presentation
+
+* **D-80. Only messages this app wrote are ever shown.** `userFacingMessage` gates on
+  type, not on truthiness: an error must descend from `AppError` for its text to be
+  repeated. `error instanceof Error ? error.message : fallback` was the bug - a
+  DOMException from the Bluetooth stack and a TypeError from a real defect are both
+  `Error`, so the OBD path could put "Cannot read properties of undefined (reading
+  'server')" in front of a driver. `DirectionsError`, `GeocodingError`, `TrafficError`
+  and the new `ObdError` all descend from `AppError`.
+* **D-81. A content filter backs the type gate.** `isUserSafeMessage` rejects stack
+  frames, file:line pairs, error class names, property paths, UUIDs, AT commands and raw
+  PIDs, `null`/`undefined`/`NaN` leaking through a template, and anything multi-line or
+  over 160 characters. It applies to our own messages too, because the leak that
+  prompted this was an authored string: `No reply to ${command} within ${timeoutMs} ms.`
+  put the raw ELM327 command on screen. That message is now
+  "The adapter stopped responding."
+* **D-82. Toasts are opaque fills, not tints.** A 15% red wash over a live map was
+  legible against dark tiles and invisible against bright ones. An error is the one
+  message that must never be missed, so it is a solid fill with white text, a ring and a
+  drop shadow, and it carries `role="alert"` rather than `role="status"`. Inline panel
+  errors share `INLINE_ERROR`, a tinted chip, in place of thin `text-red-400`.
+
+### Acceptance Criteria
+
+* AC-750: every app error class descends from `AppError` and reaches the driver.
+* AC-751: a plain Error, TypeError, thrown string, object, null or undefined is replaced
+  by the authored fallback; so are the specific strings Web Bluetooth throws.
+* AC-752: the content filter catches stack frames, file:line, class names, property
+  paths, UUIDs, AT commands, PIDs, `undefined`/`NaN` in templates, `[object Object]`,
+  arrow functions, native-code markers, empty, multi-line and overlong strings.
+* AC-753: an `AppError` whose message is code-shaped still falls back.
+* AC-754: all 24 authored messages in the app pass the filter.
+* AC-755: the error toast is an opaque fill with white text, a shadow and `role="alert"`;
+  a non-error stays `role="status"`.
+
+Verify: `tests/errors.test.ts` (65), `tests/layout.test.ts` (129).

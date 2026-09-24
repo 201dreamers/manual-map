@@ -1,9 +1,10 @@
+import { AppError } from './errors';
 import type { BoundingBox } from './geocoding';
 import type { CoordinateTuple } from '../types/domain';
 
 const INCIDENTS_ENDPOINT = 'https://api.tomtom.com/traffic/services/5/incidentDetails';
 
-export class TrafficError extends Error {}
+export class TrafficError extends AppError {}
 
 /**
  * Incidents are fetched for the route, not for the viewport, and only when the driver

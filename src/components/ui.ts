@@ -94,3 +94,12 @@ export const DRIVE_SECONDARY_TARGET = 'min-h-[56px] min-w-[56px]';
  */
 export const NORMAL_SPEED_DIAL = 'h-24 w-24';
 export const DRIVE_SPEED_DIAL = 'h-28 w-28';
+
+/**
+ * Inline error text inside a panel. `text-red-400` at `text-xs` was too thin to read
+ * against a translucent panel over a bright map, so this pairs a lighter red with a
+ * tinted chip: the block is visible before a word of it is read.
+ */
+export const INLINE_ERROR =
+  'rounded-lg bg-red-500/15 px-2.5 py-1.5 text-xs font-medium leading-snug text-red-200 ' +
+  'ring-1 ring-red-500/40';

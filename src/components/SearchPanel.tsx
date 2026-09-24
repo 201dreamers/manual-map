@@ -1,3 +1,4 @@
+import { INLINE_ERROR } from './ui';
 import { useState } from 'react';
 import { Flag, Loader2, MapPin, Plus, Search, X } from 'lucide-react';
 import { MIN_SEARCH_LENGTH, useSimulationStore, type SearchRole } from '../store/simulationStore';
@@ -57,7 +58,7 @@ export function SearchPanel() {
       </div>
 
       {searchError && (
-        <p className="px-3 pb-2 text-xs leading-relaxed text-red-400">{searchError}</p>
+        <p className={`mx-3 mb-2 ${INLINE_ERROR}`}>{searchError}</p>
       )}
 
       {isActive && !searchError && !isSearching && searchResults.length === 0 && (

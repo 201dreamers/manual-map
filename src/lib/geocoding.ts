@@ -1,3 +1,4 @@
+import { AppError } from './errors';
 import type { CoordinateTuple } from '../types/domain';
 
 const GEOCODE_ENDPOINT = 'https://api.mapbox.com/search/geocode/v6/forward';
@@ -19,7 +20,7 @@ const REGIONAL_EXPANSION = 8;
 /** Ceiling on the expanded box, roughly a large country. */
 const MAX_REGIONAL_SPAN_DEGREES = 6;
 
-export class GeocodingError extends Error {}
+export class GeocodingError extends AppError {}
 
 export interface GeocodeResult {
   id: string;

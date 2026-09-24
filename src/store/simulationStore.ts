@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { DirectionsError, fetchDrivingRoute, MAX_ROUTE_POINTS } from '../lib/directions';
+import { fetchDrivingRoute, MAX_ROUTE_POINTS } from '../lib/directions';
 import {
-  GeocodingError,
   searchPlaces,
   type BoundingBox,
   type GeocodeResult,
@@ -23,6 +22,7 @@ import {
   strokeLengthMeters,
 } from '../lib/splice';
 import { routeRepository, settingsRepository } from '../lib/storage';
+import { userFacingMessage } from '../lib/errors';
 import {
   fetchSpeedCameras,
   shouldFetchCameras,
@@ -37,7 +37,6 @@ import {
   routeBbox,
   routeKey,
   shouldFetchIncidents,
-  TrafficError,
   type TrafficIncident,
 } from '../lib/traffic';
 import { createElm327, type Elm327Client } from '../lib/obd/elm327';
@@ -637,8 +636,7 @@ export const useSimulationStore = create<SimulationState>()(
         void get().refreshCameras();
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        const message =
-          error instanceof DirectionsError ? error.message : 'Route calculation failed.';
+        const message = userFacingMessage(error, 'Route calculation failed.');
         set({ routePoints: previous, ...lockStateFor(previous), isRouting: false });
         get().pushToast('error', message);
       } finally {
@@ -673,7 +671,7 @@ export const useSimulationStore = create<SimulationState>()(
           searchResults: [],
           isSearching: false,
           searchError:
-            error instanceof GeocodingError ? error.message : 'Address search failed.',
+            userFacingMessage(error, 'Address search failed.'),
         });
       } finally {
         if (pendingSearchRequest === controller) pendingSearchRequest = null;
@@ -986,8 +984,7 @@ export const useSimulationStore = create<SimulationState>()(
           if (error instanceof DOMException && error.name === 'AbortError') return;
           if (pendingIncidentRequest !== controller) return;
           pendingIncidentRequest = null;
-          const message =
-            error instanceof TrafficError ? error.message : 'Could not load traffic incidents.';
+          const message = userFacingMessage(error, 'Could not load traffic incidents.');
           set({
             traffic: {
               ...get().traffic,
@@ -1425,7 +1422,9 @@ export const useSimulationStore = create<SimulationState>()(
 
           obdPollTimer = setInterval(() => void get().pollObdOnce(), OBD_POLL_INTERVAL_MS);
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Could not reach the adapter.';
+          // Gated on type, not on truthiness: a DOMException from the Bluetooth stack
+          // and a TypeError from a bug are both `Error`, and both carry code detail.
+          const message = userFacingMessage(error, 'Could not reach the adapter.');
           set({ obd: { ...get().obd, status: 'disconnected', error: message } });
           get().pushToast('error', message);
         }

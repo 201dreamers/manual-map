@@ -617,4 +617,36 @@ check(
     topBar.slice(rowStart, zoomAt).includes('items-start'));
 }
 
+/* ---------------- The error toast has to be readable over any map tile ---------------- */
+
+{
+  const { ToastStack } = await import('../src/components/ToastStack');
+
+  Object.assign(initialSnapshot, useSimulationStore.getState(), {
+    toasts: [
+      { id: 't1', kind: 'error' as const, text: 'Could not reach the adapter.' },
+      { id: 't2', kind: 'info' as const, text: 'Route complete.' },
+    ],
+  });
+  const markup = renderToStaticMarkup(createElement(ToastStack));
+
+  const errorTag = markup.slice(
+    markup.lastIndexOf('<div', markup.indexOf('Could not reach the adapter.')),
+    markup.indexOf('Could not reach the adapter.'),
+  );
+  check('AC-755 the error toast is an opaque fill, not a tint over the map',
+    errorTag.includes('bg-red-600') && !errorTag.includes('bg-red-500/15'), errorTag.slice(0, 120));
+  check('AC-755 with white text rather than a mid red', errorTag.includes('text-white'));
+  check('AC-755 and a shadow to lift it off the map', errorTag.includes('box-shadow'));
+  check('AC-755 an error is announced, not merely stated',
+    errorTag.includes('role="alert"'), errorTag.slice(0, 80));
+
+  const infoTag = markup.slice(
+    markup.lastIndexOf('<div', markup.indexOf('Route complete.')),
+    markup.indexOf('Route complete.'),
+  );
+  check('AC-755 a non-error stays a status', infoTag.includes('role="status"'));
+  check('the dismiss control survives', markup.includes('aria-label="Dismiss"'));
+}
+
 report('layout');
