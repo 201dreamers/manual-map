@@ -1,5 +1,19 @@
 import { useEffect, useRef } from 'react';
-import { Compass, History, Menu, Pencil, Repeat, Settings, Undo2 } from 'lucide-react';
+import {
+  Bluetooth,
+  BluetoothConnected,
+  Compass,
+  History,
+  Menu,
+  Pencil,
+  Repeat,
+  Camera,
+  RefreshCw,
+  Settings,
+  TriangleAlert,
+  Undo2,
+  Waypoints,
+} from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import { GLASS_BUTTON, GLASS_SURFACE } from './ui';
 
@@ -29,6 +43,23 @@ export function MenuButton() {
   const resetNorth = useSimulationStore((state) => state.resetNorth);
   const hasToken = useSimulationStore((state) => state.mapboxToken !== null);
   const isRouteLocked = useSimulationStore((state) => state.isRouteLocked);
+  const controlsMirrored = useSimulationStore((state) => state.config.controlsMirrored);
+  const obdStatus = useSimulationStore((state) => state.obd.status);
+  const isCongestionOn = useSimulationStore((state) => state.traffic.isCongestionOn);
+  const isIncidentsOn = useSimulationStore((state) => state.traffic.isIncidentsOn);
+  const trafficStatus = useSimulationStore((state) => state.traffic.status);
+  const toggleCongestionOverlay = useSimulationStore((state) => state.toggleCongestionOverlay);
+  const toggleIncidentsOverlay = useSimulationStore((state) => state.toggleIncidentsOverlay);
+  const refreshIncidents = useSimulationStore((state) => state.refreshIncidents);
+  const isCamerasOn = useSimulationStore((state) => state.traffic.isCamerasOn);
+  const isLoadingCameras = useSimulationStore((state) => state.traffic.isLoadingCameras);
+  const toggleCamerasOverlay = useSimulationStore((state) => state.toggleCamerasOverlay);
+  const refreshCameras = useSimulationStore((state) => state.refreshCameras);
+  // Either half in flight spins the icon: to the driver it is one refresh.
+  const isRefreshing = trafficStatus === 'loading' || isLoadingCameras;
+  const hasRoute = useSimulationStore((state) => state.geometry !== null);
+  const connectObd = useSimulationStore((state) => state.connectObd);
+  const disconnectObd = useSimulationStore((state) => state.disconnectObd);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -51,7 +82,7 @@ export function MenuButton() {
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        className={`${GLASS_BUTTON} min-h-[48px] min-w-[48px] ${
+        className={`${GLASS_BUTTON} min-h-[48px] min-w-[48px] rounded-2xl ${
           isDrawArmed ? 'text-amber-300 ring-amber-400' : ''
         }`}
         onClick={() => setOpen(!isOpen)}
@@ -65,13 +96,110 @@ export function MenuButton() {
       {isOpen && (
         <div
           role="menu"
-          className={`pointer-events-auto absolute left-0 top-[calc(100%+0.5rem)] z-20 flex w-52 flex-col gap-0.5 rounded-2xl p-1.5 ${GLASS_SURFACE}`}
+          className={`pointer-events-auto absolute ${
+            controlsMirrored ? 'right-0' : 'left-0'
+          } top-[calc(100%+0.5rem)] z-20 flex w-52 flex-col gap-0.5 rounded-2xl p-1.5 ${GLASS_SURFACE}`}
         >
           <button type="button" role="menuitem" className={ITEM_CLASS} onClick={run(() => openSettings(true))}>
             <Settings size={18} /> Settings
           </button>
           <button type="button" role="menuitem" className={ITEM_CLASS} onClick={run(() => openHistory(true))}>
             <History size={18} /> History
+          </button>
+          {/*
+            D-24: with no Web Bluetooth the status is `unavailable` and nothing renders
+            here at all, so the Safari PWA tree is unchanged. The item stays enabled
+            while locked - connecting an adapter is not a route edit.
+          */}
+          {obdStatus !== 'unavailable' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={ITEM_CLASS}
+              disabled={obdStatus === 'connecting'}
+              onClick={run(() => {
+                void (obdStatus === 'connected' ? disconnectObd() : connectObd());
+              })}
+            >
+              {obdStatus === 'connected' ? (
+                <BluetoothConnected size={18} className="text-emerald-400" />
+              ) : (
+                <Bluetooth size={18} />
+              )}
+              {obdStatus === 'connected'
+                ? 'Disconnect OBD'
+                : obdStatus === 'connecting'
+                  ? 'Connecting...'
+                  : 'Connect OBD'}
+            </button>
+          )}
+          {/*
+            Both overlays stay enabled while the route is locked: they change what is
+            drawn over the map, not the route, so they are exactly the kind of thing a
+            driver may want to switch mid-drive.
+          */}
+          <button
+            type="button"
+            role="menuitem"
+            className={`${ITEM_CLASS} ${isCongestionOn ? 'text-amber-300' : ''}`}
+            disabled={!hasToken}
+            aria-pressed={isCongestionOn}
+            onClick={run(toggleCongestionOverlay)}
+          >
+            <Waypoints size={18} /> {isCongestionOn ? 'Hide traffic' : 'Show traffic'}
+          </button>
+          {/* No TomTom key built in means `unavailable`, and nothing renders here. */}
+          {trafficStatus !== 'unavailable' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={`${ITEM_CLASS} ${isIncidentsOn ? 'text-amber-300' : ''}`}
+              disabled={!hasToken}
+              aria-pressed={isIncidentsOn}
+              onClick={run(toggleIncidentsOverlay)}
+            >
+              <TriangleAlert size={18} /> {isIncidentsOn ? 'Hide incidents' : 'Show incidents'}
+            </button>
+          )}
+          {/*
+            Cameras need no key and come from OpenStreetMap, so unlike incidents this is
+            offered wherever the app runs - including where the traffic vendors have no
+            coverage at all, which is the only hazard data available there.
+          */}
+          <button
+            type="button"
+            role="menuitem"
+            className={`${ITEM_CLASS} ${isCamerasOn ? 'text-amber-300' : ''}`}
+            disabled={!hasToken}
+            aria-pressed={isCamerasOn}
+            onClick={run(toggleCamerasOverlay)}
+          >
+            <Camera size={18} className={isLoadingCameras ? 'animate-pulse' : ''} />
+            {isCamerasOn ? 'Hide cameras' : 'Show cameras'}
+          </button>
+          {/*
+            Always present, and it refreshes both layers rather than only incidents.
+            Everything else fetches on its own schedule - incidents on the lock and then
+            once a half hour, cameras once per route - so this is the one way to ask for
+            fresh data on demand, and hiding it behind the state of one layer made it
+            hard to find exactly when it was wanted.
+
+            Each refresh is individually gated: with the incidents layer off, or no
+            TomTom key, that half simply does nothing. Still disabled without a route,
+            because both fetches are scoped to the route and there is nothing to ask for.
+          */}
+          <button
+            type="button"
+            role="menuitem"
+            className={ITEM_CLASS}
+            disabled={!hasRoute || isRefreshing}
+            onClick={run(() => {
+              void refreshIncidents(true);
+              void refreshCameras(true);
+            })}
+          >
+            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh traffic'}
           </button>
           <button
             type="button"

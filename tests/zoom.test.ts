@@ -120,8 +120,18 @@ check('a short screen still puts the marker below centre',
   vehicleAnchorY(SHORT) > SHORT / 2, `${vehicleAnchorY(SHORT).toFixed(0)}px of ${SHORT}px`);
 check('a tall screen is governed by the anchor, not the clearance',
   Math.abs(vehicleAnchorY(HEIGHT) - HEIGHT * VEHICLE_SCREEN_ANCHOR) < 1e-6);
-check('a viewport shorter than the clearance falls back to the middle',
-  vehicleAnchorY(300) === 150, `${vehicleAnchorY(300)}px`);
+// The old rule returned the middle when the clearance could not be met, which put the
+// marker *below* the top of the controls - hiding it in exactly the case the clearance
+// exists to prevent. Clearance wins instead, floored so it cannot leave the screen.
+check('a viewport shorter than the clearance keeps the clearance, not the middle',
+  vehicleAnchorY(300) === 100, `${vehicleAnchorY(300)}px`);
+check('the floor stops a huge cluster pushing the marker off the top',
+  vehicleAnchorY(300, 250) === 90, `${vehicleAnchorY(300, 250)}px`);
+// A measured cluster is passed in rather than assumed: 695px viewport, 320px of controls.
+check('a measured clearance is honoured exactly',
+  vehicleAnchorY(695, 320) === 375, `${vehicleAnchorY(695, 320)}px`);
+check('and still leaves the marker below the floor',
+  vehicleAnchorY(695, 320) > 695 * 0.3);
 check('the inset is never negative', trackingPadding(300).top >= 0);
 
 // Every camera move that should hold the anchor must ask for it, and none of them may

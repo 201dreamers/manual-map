@@ -12,7 +12,9 @@ const ls = {
 const COORDS: [number, number][] = [[30.5, 50.45], [30.5, 50.459], [30.5, 50.468]];
 let requests = 0;
 (globalThis as any).fetch = async (url: string) => {
-  requests++;
+  // Directions only. The camera layer is on by default and fetches Overpass whenever a
+  // route is built, so an unfiltered counter no longer measures what this suite claims.
+  if (url.includes('/directions/')) requests++;
   return {
     ok: true, status: 200,
     json: async () => ({ code: 'Ok', routes: [{ distance: 2000 + url.length, geometry: { coordinates: COORDS } }] }),

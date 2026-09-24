@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
+import { Z_TOAST } from './ui';
 import type { ToastKind } from '../types/domain';
 
 const STYLES: Record<ToastKind, { className: string; Icon: typeof Info }> = {
@@ -16,7 +17,7 @@ export function ToastStack() {
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-3 top-0 z-50 flex flex-col gap-2"
+      className={`pointer-events-none absolute inset-x-3 top-0 ${Z_TOAST} flex flex-col gap-2`}
       // Standalone mode draws under the status bar, so the first toast needs the inset.
       style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
     >

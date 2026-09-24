@@ -54,6 +54,65 @@ export function stubDirections(coordinates: [number, number][], distanceMeters: 
   });
 }
 
+/**
+ * Scripted stand-in for the one impure file in the OBD stack. `respond` returns the
+ * chunks the adapter would push back, so a test controls exactly where the BLE
+ * fragmentation falls - which is the thing the real transport cannot be trusted about.
+ */
+export interface FakeObdTransport {
+  sent: string[];
+  state: 'connected';
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  write(command: string): Promise<void>;
+  onData(handler: (chunk: string) => void): () => void;
+  onDisconnect(handler: () => void): () => void;
+  /** Simulates the link dropping on its own, rather than by request. */
+  dropLink(): void;
+}
+
+export function createFakeObdTransport(
+  respond: (command: string) => string[],
+): FakeObdTransport {
+  const dataHandlers = new Set<(chunk: string) => void>();
+  const dropHandlers = new Set<() => void>();
+  const sent: string[] = [];
+
+  return {
+    sent,
+    state: 'connected',
+    async connect() {},
+    async disconnect() {},
+    async write(command: string) {
+      sent.push(command);
+      const chunks = respond(command);
+      setTimeout(() => chunks.forEach((chunk) => dataHandlers.forEach((h) => h(chunk))), 0);
+    },
+    onData(handler) {
+      dataHandlers.add(handler);
+      return () => dataHandlers.delete(handler);
+    },
+    onDisconnect(handler) {
+      dropHandlers.add(handler);
+      return () => dropHandlers.delete(handler);
+    },
+    dropLink() {
+      dropHandlers.forEach((handler) => handler());
+    },
+  };
+}
+
+/** Four bitmap bytes describing base+1 .. base+32, most significant bit first. */
+export function obdSupportBitmap(basePid: number, supported: number[]): string {
+  const bytes = [0, 0, 0, 0];
+  for (const pid of supported) {
+    const offset = pid - basePid;
+    bytes[Math.floor((offset - 1) / 8)] |= 1 << (7 - ((offset - 1) % 8));
+  }
+  const hex = bytes.map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  return `41 ${basePid.toString(16).toUpperCase().padStart(2, '0')} ${hex}`;
+}
+
 /** Runs an in-flight step glide to completion, the way the rAF loop would. */
 export function settleStepAnimation(
   getState: () => { advanceStepAnimation: (deltaSeconds: number) => boolean },

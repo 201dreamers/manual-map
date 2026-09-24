@@ -16,6 +16,10 @@ let waypointsSent: string[] = [];
 let failNextRoute = false;
 
 (globalThis as any).fetch = async (url: string) => {
+  // Directions only: cameras are on by default and fetch Overpass on every route build.
+  if (!url.includes('/directions/')) {
+    return { ok: true, status: 200, json: async () => ({ elements: [] }) };
+  }
   directionsCalls++;
   const path = url.split('/driving/')[1]?.split('?')[0] ?? '';
   waypointsSent = path.split(';');

@@ -5,7 +5,7 @@ import { GLASS_SURFACE } from './ui';
 /**
  * FR-4.3: shown only once the user has taken manual control of the camera. The control
  * panel floats it in the empty middle of the button row, level with the play button and
- * directly above the speed slider, so appearing costs no layout shift.
+ * directly above the speed row, so appearing costs no layout shift.
  */
 export function RecenterButton() {
   const cameraTrackingEnabled = useSimulationStore((state) => state.config.cameraTrackingEnabled);

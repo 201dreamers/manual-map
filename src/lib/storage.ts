@@ -3,7 +3,18 @@ import type { AppSettings, RouteMetadata, SavedWaypoint } from '../types/domain'
 const ROUTES_KEY = 'manual-map:routes';
 const SETTINGS_KEY = 'manual-map:settings';
 
-const DEFAULT_SETTINGS: AppSettings = { mapboxAccessToken: null, controlsMirrored: false };
+const DEFAULT_SETTINGS: AppSettings = {
+  mapboxAccessToken: null,
+  controlsMirrored: false,
+  // A layer is on by default when showing it costs nothing per use. Congestion rides
+  // the map tiles that are already being fetched, and cameras come from keyless OSM, so
+  // both start on. TomTom incidents are metered against a daily quota, so that one stays
+  // off until it is asked for.
+  congestionOverlay: true,
+  incidentsOverlay: false,
+  camerasOverlay: true,
+  obdCalibration: 1,
+};
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -85,6 +96,17 @@ export const routeRepository = {
   },
 };
 
+/** Mirrors the bounds the reckoning module enforces, so the two can never disagree. */
+function clampCalibration(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
+  return Math.min(Math.max(value, 0.8), 1.2);
+}
+
+/** A stored boolean wins; anything else (absent, corrupted) falls back to the default. */
+function readFlag(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
 export const settingsRepository = {
   read(): AppSettings {
     const parsed = readJson<Partial<AppSettings>>(SETTINGS_KEY, DEFAULT_SETTINGS);
@@ -92,6 +114,16 @@ export const settingsRepository = {
     return {
       mapboxAccessToken: typeof token === 'string' && token ? token : null,
       controlsMirrored: parsed.controlsMirrored === true,
+      // Read against the default rather than against `=== true`, so that a settings
+      // blob written before these keys existed - or by a build that did not have them -
+      // picks up the default instead of being silently forced off. An explicit stored
+      // `false` is still a choice and is honoured.
+      congestionOverlay: readFlag(parsed.congestionOverlay, DEFAULT_SETTINGS.congestionOverlay),
+      incidentsOverlay: readFlag(parsed.incidentsOverlay, DEFAULT_SETTINGS.incidentsOverlay),
+      camerasOverlay: readFlag(parsed.camerasOverlay, DEFAULT_SETTINGS.camerasOverlay),
+      // Bounded on read as well as on write: a hand-edited or corrupted value would
+      // otherwise scale every distance the app reports for the life of the install.
+      obdCalibration: clampCalibration(parsed.obdCalibration),
     };
   },
 

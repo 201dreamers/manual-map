@@ -6,7 +6,7 @@ import { PlanDrawer } from './components/PlanDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { ToastStack } from './components/ToastStack';
 import { TopBar } from './components/TopBar';
-import { ZoomControls } from './components/ZoomControls';
+import { Z_TOP } from './components/ui';
 import { useAnimationLoop } from './lib/useAnimationLoop';
 import { useWakeLock } from './lib/useWakeLock';
 import { useSimulationStore } from './store/simulationStore';
@@ -33,11 +33,10 @@ function App() {
 
         {/* Top overlay stack: the action row, then the status line under it. */}
         <div
-          className="pointer-events-none absolute inset-x-3 top-0 flex flex-col gap-2"
+          className={`pointer-events-none absolute inset-x-3 top-0 flex flex-col gap-2 ${Z_TOP}`}
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
           <TopBar />
-          <ZoomControls />
         </div>
 
         <PlanDrawer />

@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<!-- Mirrors index.html exactly, so insets and standalone behaviour are representative. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#020617" />
+<meta name="color-scheme" content="dark" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>BLE Probe - Manual Map</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #020617; color: #e2e8f0;
+    font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+             max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  }
+  h1 { font-size: 17px; margin: 0 0 1rem; color: #f8fafc; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+       color: #94a3b8; margin: 1.5rem 0 .5rem; font-weight: 600; }
+  .row { display: flex; justify-content: space-between; gap: 1rem;
+         padding: .4rem 0; border-bottom: 1px solid #1e293b; }
+  .k { color: #94a3b8; flex: 0 0 auto; }
+  .v { text-align: right; word-break: break-all; }
+  .ok { color: #4ade80; } .bad { color: #f87171; } .warn { color: #fbbf24; }
+  button {
+    width: 100%; min-height: 56px; margin-top: 1rem; border-radius: 12px;
+    border: 1px solid #334155; background: #0f172a; color: #e2e8f0;
+    font: inherit; font-weight: 600; -webkit-tap-highlight-color: transparent;
+  }
+  button:active { background: #1e293b; }
+  button:disabled { opacity: .4; }
+  pre { background: #0f172a; border: 1px solid #1e293b; border-radius: 12px;
+        padding: .75rem; overflow-x: auto; font-size: 12px; white-space: pre-wrap;
+        word-break: break-all; margin: 1rem 0 0; }
+  #sa-probe { position: fixed; top: 0; left: 0; width: 0; height: 0; visibility: hidden;
+    padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); }
+</style>
+</head>
+<body>
+<div id="sa-probe"></div>
+<h1>Manual Map - BLE / environment probe</h1>
+<div id="out"></div>
+<button id="scan">Scan for BLE device</button>
+<button id="copy">Copy all results</button>
+<pre id="log">No scan yet.</pre>
+
+<script>
+// Common ELM327 / OBD BLE service UUIDs. Web Bluetooth refuses access to any
+// service not declared here, so the list has to be broad to discover the real one.
+var OBD_SERVICES = [
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '0000ffe5-0000-1000-8000-00805f9b34fb',
+  '0000fee7-0000-1000-8000-00805f9b34fb',
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  '0000abf0-0000-1000-8000-00805f9b34fb',
+  '0000ffff-0000-1000-8000-00805f9b34fb',
+  'device_information',
+  'generic_access'
+];
+
+var lines = [];
+function row(key, value, cls) {
+  lines.push(key + ': ' + value);
+  var d = document.createElement('div');
+  d.className = 'row';
+  d.innerHTML = '<span class="k"></span><span class="v"></span>';
+  d.children[0].textContent = key;
+  d.children[1].textContent = value;
+  if (cls) d.children[1].className = 'v ' + cls;
+  document.getElementById('out').appendChild(d);
+}
+function head(text) {
+  lines.push('', '## ' + text);
+  var h = document.createElement('h2');
+  h.textContent = text;
+  document.getElementById('out').appendChild(h);
+}
+
+/* ---------- 1. the question V4 hinges on ---------- */
+head('Web Bluetooth');
+var hasBt = typeof navigator.bluetooth !== 'undefined';
+row('navigator.bluetooth', hasBt ? 'present' : 'UNDEFINED', hasBt ? 'ok' : 'bad');
+row('requestDevice', typeof (navigator.bluetooth || {}).requestDevice, hasBt ? 'ok' : 'bad');
+row('getDevices (reconnect)', typeof (navigator.bluetooth || {}).getDevices,
+    typeof (navigator.bluetooth || {}).getDevices === 'function' ? 'ok' : 'warn');
+row('secureContext', String(window.isSecureContext), window.isSecureContext ? 'ok' : 'bad');
+if (hasBt && navigator.bluetooth.getAvailability) {
+  navigator.bluetooth.getAvailability().then(function (a) {
+    row('getAvailability()', String(a), a ? 'ok' : 'warn');
+  }).catch(function (e) { row('getAvailability()', 'threw: ' + e.message, 'warn'); });
+}
+
+/* ---------- 2. standalone vs tab: decides the layout work ---------- */
+head('Display mode');
+var modes = ['standalone', 'fullscreen', 'minimal-ui', 'browser'];
+var active = modes.filter(function (m) { return matchMedia('(display-mode: ' + m + ')').matches; });
+row('display-mode', active.join(', ') || 'none matched',
+    active.indexOf('standalone') >= 0 ? 'ok' : 'warn');
+row('navigator.standalone', String(navigator.standalone),
+    navigator.standalone ? 'ok' : 'warn');
+
+/* ---------- 3. how much room the chrome costs ---------- */
+head('Viewport');
+row('innerWidth x innerHeight', window.innerWidth + ' x ' + window.innerHeight);
+row('screen', screen.width + ' x ' + screen.height);
+if (window.visualViewport) {
+  row('visualViewport', Math.round(visualViewport.width) + ' x ' + Math.round(visualViewport.height));
+}
+var lost = screen.height - window.innerHeight;
+row('vertical space lost', lost + 'px', lost > 60 ? 'warn' : 'ok');
+row('devicePixelRatio', String(devicePixelRatio));
+
+/* ---------- 4. safe-area insets: 10 files depend on these ---------- */
+head('Safe-area insets');
+var cs = getComputedStyle(document.getElementById('sa-probe'));
+// Named saTop rather than top: a global `var top` never shadows window.top,
+// which is read-only, so the assignment silently no-ops and prints the Window.
+var saTop = parseFloat(cs.paddingTop), saRight = parseFloat(cs.paddingRight);
+var saBottom = parseFloat(cs.paddingBottom), saLeft = parseFloat(cs.paddingLeft);
+row('inset-top', saTop + 'px');
+row('inset-right', saRight + 'px');
+row('inset-bottom', saBottom + 'px', saBottom === 0 ? 'warn' : 'ok');
+row('inset-left', saLeft + 'px');
+// ControlPanel.tsx:34 resolves max(0.75rem, inset-bottom); 0.75rem = 12px.
+row('ControlPanel pad-bottom', Math.max(12, saBottom) + 'px', saBottom === 0 ? 'warn' : 'ok');
+
+// D-13 check: vehicle at 0.75 of container height needs 200px kept below it.
+var anchorY = 0.75 * window.innerHeight;
+var clearance = window.innerHeight - anchorY;
+row('D-13 clearance below anchor', Math.round(clearance) + 'px',
+    clearance < 200 ? 'warn' : 'ok');
+row('D-13 verdict', clearance < 200 ? 'clearance wins, anchor gives way' : 'anchor holds',
+    clearance < 200 ? 'warn' : 'ok');
+
+/* ---------- 5. the rest of the PWA surface ---------- */
+head('PWA / platform');
+row('serviceWorker API', typeof navigator.serviceWorker !== 'undefined' ? 'present' : 'absent',
+    typeof navigator.serviceWorker !== 'undefined' ? 'ok' : 'bad');
+row('SW controller', navigator.serviceWorker && navigator.serviceWorker.controller ? 'active' : 'none',
+    navigator.serviceWorker && navigator.serviceWorker.controller ? 'ok' : 'warn');
+row('wakeLock', typeof navigator.wakeLock !== 'undefined' ? 'present' : 'ABSENT',
+    typeof navigator.wakeLock !== 'undefined' ? 'ok' : 'bad');
+row('geolocation', typeof navigator.geolocation !== 'undefined' ? 'present' : 'absent');
+row('origin', location.origin);
+row('userAgent', navigator.userAgent);
+if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+  navigator.serviceWorker.getRegistrations().then(function (r) {
+    row('SW registrations', String(r.length), r.length ? 'ok' : 'warn');
+  }).catch(function () {});
+}
+
+/* ---------- 6. actually exercise the bridge against the KW906 ---------- */
+var log = document.getElementById('log');
+function say(t) { log.textContent += '\n' + t; lines.push(t); }
+
+document.getElementById('scan').addEventListener('click', function () {
+  if (!hasBt) { log.textContent = 'navigator.bluetooth is undefined - nothing to scan with.'; return; }
+  log.textContent = 'Requesting device (turn the KW906 on first)...';
+  navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: OBD_SERVICES })
+    .then(function (device) {
+      say('device.name: ' + (device.name || '(none)'));
+      say('device.id:   ' + device.id);
+      say('connecting GATT...');
+      return device.gatt.connect();
+    })
+    .then(function (server) {
+      say('GATT connected. Enumerating services...');
+      return server.getPrimaryServices();
+    })
+    .then(function (services) {
+      say('primary services: ' + services.length);
+      return services.reduce(function (chain, svc) {
+        return chain.then(function () {
+          say('');
+          say('service ' + svc.uuid);
+          return svc.getCharacteristics().then(function (chars) {
+            chars.forEach(function (c) {
+              var p = c.properties;
+              var flags = ['read', 'write', 'writeWithoutResponse', 'notify', 'indicate']
+                .filter(function (f) { return p[f]; }).join(',');
+              say('  char ' + c.uuid + '  [' + flags + ']');
+            });
+          }).catch(function (e) { say('  characteristics failed: ' + e.message); });
+        });
+      }, Promise.resolve());
+    })
+    .then(function () { say(''); say('DONE. Copy results and send them over.'); })
+    .catch(function (e) { say('FAILED: ' + e.name + ' - ' + e.message); });
+});
+
+document.getElementById('copy').addEventListener('click', function () {
+  var text = lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      document.getElementById('copy').textContent = 'Copied';
+    }).catch(function () { fallbackCopy(text); });
+  } else { fallbackCopy(text); }
+});
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); document.getElementById('copy').textContent = 'Copied'; }
+  catch (e) { log.textContent = text; }
+  document.body.removeChild(ta);
+}
+</script>
+</body>
+</html>

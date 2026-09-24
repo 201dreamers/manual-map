@@ -1,12 +1,15 @@
 import { Trash2, X } from 'lucide-react';
 import { formatDistance, formatTimestamp } from '../lib/format';
 import { useSimulationStore } from '../store/simulationStore';
+import { GLASS_PANEL, Z_HISTORY } from './ui';
 
 export function HistoryDrawer() {
   const isOpen = useSimulationStore((state) => state.isHistoryOpen);
+  const unitSystem = useSimulationStore((state) => state.config.unitSystem);
   const savedRoutes = useSimulationStore((state) => state.savedRoutes);
   const activeRouteId = useSimulationStore((state) => state.activeRoute?.id ?? null);
   const openHistory = useSimulationStore((state) => state.openHistory);
+  const controlsMirrored = useSimulationStore((state) => state.config.controlsMirrored);
   const loadSavedRoute = useSimulationStore((state) => state.loadSavedRoute);
   const deleteSavedRoute = useSimulationStore((state) => state.deleteSavedRoute);
   const clearSavedRoutes = useSimulationStore((state) => state.clearSavedRoutes);
@@ -14,7 +17,11 @@ export function HistoryDrawer() {
   if (!isOpen) return null;
 
   return (
-    <div className="pointer-events-auto absolute inset-0 z-30 flex">
+    <div
+      className={`pointer-events-auto absolute inset-0 ${Z_HISTORY} flex ${
+        controlsMirrored ? 'justify-end' : ''
+      }`}
+    >
       <button
         type="button"
         aria-label="Close route history"
@@ -23,7 +30,7 @@ export function HistoryDrawer() {
       />
 
       <aside
-        className="relative flex h-full w-[86%] max-w-sm flex-col bg-slate-900 shadow-2xl"
+        className={`relative flex h-full w-[86%] max-w-sm flex-col ${GLASS_PANEL}`}
         style={{
           paddingTop: 'env(safe-area-inset-top)',
           paddingBottom: 'env(safe-area-inset-bottom)',
@@ -59,7 +66,7 @@ export function HistoryDrawer() {
                   >
                     <span className="truncate font-mono text-xs text-slate-200">{route.title}</span>
                     <span className="text-[11px] text-slate-500">
-                      {formatDistance(route.totalDistanceMeters)} · {formatTimestamp(route.createdAt)}
+                      {formatDistance(route.totalDistanceMeters, unitSystem)} · {formatTimestamp(route.createdAt)}
                     </span>
                   </button>
                   <button

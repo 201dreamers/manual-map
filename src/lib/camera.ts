@@ -37,14 +37,34 @@ export const VEHICLE_SCREEN_ANCHOR = 0.75;
  */
 export const MIN_VEHICLE_BOTTOM_CLEARANCE = 200;
 
-/** Where the marker actually lands, in pixels from the top of the container. */
-export function vehicleAnchorY(containerHeight: number): number {
+/**
+ * Floor on the anchor, as a fraction of container height. Without it a very tall
+ * control cluster would push the marker off the top of the screen chasing clearance.
+ */
+export const MIN_VEHICLE_SCREEN_ANCHOR = 0.3;
+
+/**
+ * Where the marker actually lands, in pixels from the top of the container.
+ *
+ * `bottomClearance` defaults to the constant but is normally passed the cluster's
+ * measured height. The constant was a guess at that height, and it went stale every
+ * time the controls changed - which is what put the marker behind them.
+ *
+ * The previous fallback returned the middle of the container whenever the clearance
+ * could not be met. That was actively wrong once the cluster passed half the viewport:
+ * the middle is *below* the top of the controls, so the fallback hid the marker rather
+ * than rescuing it. Clearance wins instead, exactly as D-13 says it should, floored so
+ * the marker cannot climb off the top of the screen.
+ */
+export function vehicleAnchorY(
+  containerHeight: number,
+  bottomClearance = MIN_VEHICLE_BOTTOM_CLEARANCE,
+): number {
   if (!Number.isFinite(containerHeight) || containerHeight <= 0) return 0;
   const preferred = containerHeight * VEHICLE_SCREEN_ANCHOR;
-  const clearanceLimit = containerHeight - MIN_VEHICLE_BOTTOM_CLEARANCE;
-  // A viewport shorter than the clearance itself falls back to the middle.
-  if (clearanceLimit <= containerHeight / 2) return containerHeight / 2;
-  return Math.min(preferred, clearanceLimit);
+  const clearanceLimit = containerHeight - bottomClearance;
+  const floor = containerHeight * MIN_VEHICLE_SCREEN_ANCHOR;
+  return Math.max(Math.min(preferred, clearanceLimit), floor);
 }
 
 /**
@@ -55,7 +75,10 @@ export function vehicleAnchorY(containerHeight: number): number {
  * Applied with `retainPadding: false`, so it shifts one camera move without sticking
  * to the map and skewing later framing such as fit-to-route.
  */
-export function trackingPadding(containerHeight: number): {
+export function trackingPadding(
+  containerHeight: number,
+  bottomClearance = MIN_VEHICLE_BOTTOM_CLEARANCE,
+): {
   top: number;
   bottom: number;
   left: number;
@@ -65,7 +88,7 @@ export function trackingPadding(containerHeight: number): {
     return { top: 0, bottom: 0, left: 0, right: 0 };
   }
   return {
-    top: Math.max(2 * vehicleAnchorY(containerHeight) - containerHeight, 0),
+    top: Math.max(2 * vehicleAnchorY(containerHeight, bottomClearance) - containerHeight, 0),
     bottom: 0,
     left: 0,
     right: 0,

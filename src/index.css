@@ -3,7 +3,7 @@
 
 /*
  * The UI is dark regardless of the phone's appearance setting, so the native
- * widgets it hosts - the speed slider, the number inputs, scrollbars and the text
+ * widgets it hosts - the number inputs, scrollbars and the text
  * caret - must be told to render dark too, or iOS draws them light on the dark
  * glass panes. The map keeps its light tiles.
  */
@@ -30,7 +30,16 @@ body,
   height: 100%;
 }
 
-/* Keep the Mapbox logo and attribution clear of the floating control cluster. */
+/*
+ * Keep the Mapbox logo and attribution clear of the floating control cluster. The
+ * height comes from ControlPanel's ResizeObserver, so this tracks the Drive layout and
+ * the safe-area inset instead of restating a number that goes stale whenever either
+ * changes. The fallback matches the drawer's.
+ */
+:root {
+  --control-cluster-height: 15rem;
+}
+
 .mapboxgl-ctrl-bottom-left {
-  bottom: calc(8.5rem + env(safe-area-inset-bottom));
+  bottom: calc(var(--control-cluster-height, 15rem) + 0.5rem);
 }

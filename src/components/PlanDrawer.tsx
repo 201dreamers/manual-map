@@ -2,12 +2,26 @@ import { ChevronDown, ChevronUp, MapPin, Trash2, X } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
 import type { RoutePoint } from '../types/domain';
 import { SearchPanel } from './SearchPanel';
-import { GLASS_SURFACE } from './ui';
+import { GLASS_PANEL, Z_DRAWER } from './ui';
 
-/** Clears the floating control cluster so playback stays reachable (AC-203). */
-const BOTTOM_OFFSET = 'calc(9.5rem + env(safe-area-inset-bottom))';
+/**
+ * Clears the floating control cluster so playback stays reachable (AC-203). The height
+ * is measured and published by `ControlPanel` rather than repeated here: the cluster
+ * grows with the Drive layout and shrinks with the safe-area inset, and a literal that
+ * tracked neither is what put the step buttons underneath this drawer. The fallback is
+ * deliberately generous, so the first paint errs clear of the controls rather than over
+ * them. It carries no `env()` of its own, because the measured height already includes
+ * the cluster's own safe-area padding.
+ */
+const BOTTOM_OFFSET = 'calc(var(--control-cluster-height, 15rem) + 0.5rem)';
 /** Clears the floating button row at the top of the map. */
-const TOP_OFFSET = 'calc(4.5rem + env(safe-area-inset-top))';
+/**
+ * Clears the top overlay row, whose height `TopBar` measures and publishes. It was a
+ * literal 4.5rem, which stopped being true once the distance panel moved into that row
+ * and grew - so the panel overlapped the drawer it opens. The fallback is generous, so
+ * the first paint errs below the row rather than under it.
+ */
+const TOP_OFFSET = 'calc(var(--top-row-height, 4.5rem) + env(safe-area-inset-top) + 1rem)';
 
 const ICON_BUTTON =
   'flex min-h-[44px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 ' +
@@ -34,6 +48,7 @@ export function PlanDrawer() {
   const moveRoutePoint = useSimulationStore((state) => state.moveRoutePoint);
   const removeRoutePoint = useSimulationStore((state) => state.removeRoutePoint);
   const clearRoute = useSimulationStore((state) => state.clearRoute);
+  const controlsMirrored = useSimulationStore((state) => state.config.controlsMirrored);
 
   if (!isOpen) return null;
 
@@ -42,7 +57,7 @@ export function PlanDrawer() {
   return (
     <aside
       style={{ bottom: BOTTOM_OFFSET, top: TOP_OFFSET }}
-      className={`pointer-events-auto absolute right-3 flex w-[min(20rem,78vw)] flex-col overflow-hidden rounded-2xl ${GLASS_SURFACE}`}
+      className={`pointer-events-auto absolute ${controlsMirrored ? 'left-3' : 'right-3'} ${Z_DRAWER} flex w-[min(20rem,78vw)] flex-col overflow-hidden rounded-2xl ${GLASS_PANEL}`}
     >
       <header className="flex items-center justify-between border-b border-slate-700 px-3 py-2">
         <h2 className="text-sm font-medium text-slate-100">

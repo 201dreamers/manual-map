@@ -381,10 +381,10 @@ Existing suites that must stay green: geo math (14), store logic (26), token val
 | D-3 | Lock blocks map-tap point adds, draw-line mode, and Undo / Reverse / Clear. It does **not** block Plan drawer edits (reorder, rename, delete). |
 | D-4 | While locked, a map tap within 44px on screen of the route line moves the cursor to that point. A tap further away is ignored with a toast. |
 | D-5 | Moving the cursor during playback keeps playing from the new point. |
-| D-6 **[revised]** | The speed slider stays visible in the Drive layout. Reset-to-start and the status pill hide. **Distance and ETA stay visible**: they are the numbers the drive is about, and the status pill only ever carries planning hints. |
+| D-6 **[revised; slider superseded by D-28; ETA dropped by D-52]** | The speed row stays visible in the Drive layout. Reset-to-start and the status pill hide. **Distance and ETA stay visible**: they are the numbers the drive is about, and the status pill only ever carries planning hints. |
 | D-7 | Zoom out gets both: large +/- buttons in the cluster, and pinch that no longer breaks camera tracking. |
 | D-8 | The menu button stays visible while locked, with its route-mutating items disabled. Hiding it would strand Settings and History behind an unlock. |
-| D-9 **[revised]** | The zoom +/- pair is a vertical stack in the **top-left corner**, under the menu. It does not mirror: `controlsMirrored` swaps the two bottom thumb clusters and the zoom pair is no longer one of them. It hides while the menu is open, which drops into the same corner. |
+| D-9 **[revised; mirroring superseded by D-54]** | The zoom +/- pair is a vertical stack in the **top-left corner**, under the menu. It does not mirror: `controlsMirrored` swaps the two bottom thumb clusters and the zoom pair is no longer one of them. It hides while the menu is open, which drops into the same corner. |
 | D-10 | The lock lives in the **top action row**, beside the stop count, at the 48px row size rather than a Drive target. A top-corner control cannot be 88px without eating the map. |
 | D-11 | Recentring is floated in the empty middle of the button row, level with play and above the speed slider. The thumb columns sit at the edges, so it costs no layout shift when it appears. |
 | D-12 | A tapped move **glides** on the step easing rather than teleporting. Unlike a step, it never pauses playback. |
@@ -438,8 +438,8 @@ Existing suites that must stay green: geo math (14), store logic (26), token val
 
 ### Drive layout
 
-* **AC-504 Drive layout target sizes [revised].** Locked, route loaded. Expected: play/pause and both step buttons each measure at least 88px in both axes; reset-to-start and the status pill are absent; the speed row, the distance/ETA card, the menu and the stop list are present. The lock is excluded from the 88px rule by D-10, the telemetry from the hiding rule by D-6. Verify: automated class assertion against a rendered tree; the feel is human-judgment. Required.
-* **AC-505 Normal layout target sizes [revised].** Unlocked. Expected: play and both step buttons each measure at least 72px; telemetry, reset and the status pill are present; the lock is offered from the top row. Verify: as AC-504. Required.
+* **AC-504 Drive layout target sizes [revised three times].** Locked, route loaded. Expected: both step buttons and the speed +/- pair each measure at least 88px in both axes - four targets - and the speed dial is larger still at 112px. Play is no longer counted separately, having merged into the dial (D-31); reset-to-start and the status pill are absent; the speed row, the distance/ETA card, the menu and the stop list are present. The lock is excluded from the 88px rule by D-10, the telemetry from the hiding rule by D-6. Verify: automated class assertion against a rendered tree; the feel is human-judgment. Required.
+* **AC-505 Normal layout target sizes [revised three times].** Unlocked. Expected: both step buttons and the speed +/- pair each measure at least 72px - four targets - with the speed dial at 96px; telemetry, reset and the status pill are present; the lock is offered from the top row. Verify: as AC-504. Required.
 * **AC-506 Recenter is laid out, not offset [revised].** Camera panned by hand. Expected: Recenter appears centred above the speed slider, at least 56px tall, positioned by the control panel rather than by any bottom offset, and its arrival leaves the thumb cluster byte-identical. Constraint that forced the change: a hardcoded offset had to be re-derived every time the cluster changed height, and it changed four times. Removing the constant removes the class of bug. Verify: rendered-tree comparison with and without it. Required.
 
 ### Tap-to-move
@@ -521,3 +521,507 @@ Human-verify only, to be reported as unverified rather than claimed: AC-504 and 
 * **Lock doubling as the layout switch** means a single flag drives both behavior and presentation. If the two ever need to separate, D-1 is the decision to revisit.
 * **The vehicle anchor and the cluster height are tuned against each other.** The 200px clearance is a guess at the cluster's real height plus a margin; growing the cluster again could put the marker behind it on a short screen.
 * **A tap that lands where the route crosses itself** projects ambiguously, the same unresolved case as the V2 splice note. The cursor may jump to the wrong branch.
+
+---
+
+# Part IV - Version 4: OBD-II Live Vehicle Tracking
+
+**Status:** Approved specification (planning session). Parts I to III above describe the shipped V1, V2 and V3 application.
+
+**Goal:** While driving, the vehicle cursor advances along the route from the car's own measured speed instead of the slider, with odometer anchoring to keep accumulated drift bounded.
+
+## 28. Locked Decisions
+
+| # | Decision |
+|---|---|
+| D-15 **[revised]** | Target runtime is **Safari plus the beacio extension, in a browser tab**. Measured on iOS 18.7 / Safari 27: the extension injects `navigator.bluetooth` in a tab and does **not** inject in a Home Screen web app. That is architectural - the standalone container is process-isolated and extensions cannot reach it - and there is no configuration that changes it. Being Safari, the origin is shared with the existing PWA, so the token and route history carry over. |
+| D-26 | **Bluefy is deferred to phase 4.** It has no iOS Local Network entitlement, so it cannot reach a LAN host at all and is untestable locally. It remains the only route that could give standalone *and* OBD, because its polyfill lives in its own app process rather than in an extension, so it is re-evaluated once the app is deployed. |
+| D-27 | Development runs entirely against the **local preview origin in a Safari tab**. Deploying and the Bluefy evaluation happen after phases 1 to 3, not before. |
+| D-16 | Adapter is the **Konnwei KW906** - ELM327 v1.5, PIC18F25K80, BLE GATT on iOS. Service and characteristic UUIDs are **discovered at runtime**, not hardcoded; `FFE0`/`FFE1` is the expected but unguaranteed pair. |
+| D-17 | Position is **dead-reckoned from OBD speed**. There is no GPS. Accepted consequence: a wrong turn is undetectable and the cursor keeps advancing along the planned route. |
+| D-18 | **Odometer PID `01A6` anchors the dead reckoning** when the vehicle supports it. Support is probed once at connect via the `01A0` bitmap and never assumed. |
+| D-19 | Calibration `k` is derived from **cumulative** odometer distance over cumulative raw integration, not per-window. Quantization error then shrinks as the drive lengthens instead of staying at 100 m. |
+| D-20 | Corrections **bleed in over ~2 s**; the cursor never teleports. Same principle as `lerpBearing` and the V3 zoom easing. |
+| D-21 | When connected, the adapter writes `config.speedKmh` and the slider renders **read-only**. No third mode: V3's lock and Drive layout are reused unchanged. **Clarified in build:** a connected adapter always updates the displayed speed, but the cursor only follows the car once Play has been pressed. Before that the marker stays where planning left it, which keeps connecting the adapter safe while a route is still being built. |
+| D-22 | v1 polls **speed and odometer only**. No RPM, coolant, fuel or load - the response budget goes to position accuracy. |
+| D-23 | Trip data is **not recorded**. `k` is the sole exception: it describes the car, not the trip, so it persists in settings. |
+| D-24 | `navigator.bluetooth` absent -> the entire OBD surface is hidden. The existing PWA must not change in any observable way. |
+| D-25 | Integration is **trapezoidal over measured timestamps**, never assumed intervals. A gap beyond `DT_MAX` is discarded, not integrated. |
+| D-28 | **The speed slider is replaced by a + / - pair around a circular speedometer.** A slider asks for a precise drag, which is the one gesture a driver cannot give; discrete presses can be made without looking. The increment is configurable in Settings (default 10 km/h) so one pair serves both careful planning and coarse adjustment at speed. The speedometer doubles as the km/h - mph toggle, which removes a control from the row. This supersedes the slider half of D-6; the requirement that the speed *row* stays visible while locked is unchanged. |
+| D-29 **[revised]** | The speed pair is sized **like the step buttons** - 72px, 88px in Drive - not like the zoom pair. It is pressed while driving rather than set once before setting off, so it earns a full thumb target. Reset-to-start takes the 44px secondary size instead, being a planning action that disappears when locked. |
+| D-31 | **Speed and playback merged into one dial**: a ring that fills with speed, play/pause in the centre, the reading beneath it. The whole circle is a single tap target for play/pause. The two interactions are not equally important - play is pressed constantly and must never be mis-hit, while the km/h - mph switch is set once - so the unit toggle moved to Settings beside the speed increment. The ring earns its place separately from the number: an arc length is readable without focusing on it, which a two-digit number is not. |
+| D-32 | The left column reads **bottom-up by frequency**: plus and minus above, the dial lowest and largest, nearest the thumb. |
+| D-34 | **Speed increments are per direction**, stored in km/h: +10 up, -5 down by default. Winding up to a cruising speed wants bigger jumps than easing back down to a safe one - the same asymmetry the step distances already have. |
+| D-35 | **One unit system, not a toggle per quantity.** `unitSystem` is metric or imperial and drives the speed readout and every distance shown. Metric is the default. Increments are typed in whatever units are on screen and stored in km/h, so switching systems does not silently rewrite what the buttons do. Known limit: the step *distance* inputs in Settings stay in metres, because converting them round-trips through rounding; their button labels do follow the system. |
+| D-36 | **The lock moves beside the menu in the top-left; reset-to-start takes its place in the top-right.** This supersedes D-10's placement, not its sizing - the lock is still a 48px row control rather than a Drive target. |
+| D-56 **[supersedes D-37 and D-39]** | **The location control is a marker toggle, not a route action.** It shows where the device is - a blue disc with an arrow - and places no stops. It is offered whether or not a route exists, collapsing to an icon in a circle once the row is busy. The crossed icon states what the next press will do rather than what the current state is. |
+| D-57 | **The position is watched continuously while the marker is on** (`watchPosition`), not sampled once. A stale dot on a moving vehicle is worse than no dot, and a direction arrow on a pinned position means nothing. The watch is torn down on toggle-off and on any error. |
+| D-58 | **The arrow follows GPS course while moving and the compass at rest.** GPS reports the direction of travel and is unaffected by the steel box the phone sits in; the compass is the only source that knows which way you face at a standstill. Below `MOVING_SPEED_MS` (0.5 m/s) a satellite course is derived from jitter, which is why a parked arrow spins without the threshold. A device that reports a heading but no speed is trusted. With neither source, **no arrow is drawn** - a fixed arrow on an unknown heading is a confident lie. |
+| D-59 | **The camera flies to the marker once, on the first fix.** After that the view is the user's: following the marker would fight both manual panning and the vehicle tracking, which already owns the camera during playback. |
+| D-37 **[renamed; superseded by D-56]** | **"My location" seeds an empty route from the device's location.** Named for what it uses rather than what it does: "Start" collides with the Play control, and "begin the simulation" is the one misreading this button cannot afford. Offered only while no stops exist and only where `navigator.geolocation` is present, and it disappears the moment a stop is added. It seeds a route; it does not navigate one, and GPS still does not drive the cursor. |
+| D-38 **[revised]** | **The location control gets its own right-aligned row under the stop list**, with the status hint on the row below it. It was first pinned out of flow across the hint, which collided in practice: the centred hint is about 228px wide on a 393px screen and the button about 116px, overlapping by roughly 45px. Two rows cannot overlap, and the cost is that the zoom stack shifts down once while the route is empty. |
+| D-39 | **Seeding from a location flies the camera to it.** The one exception to the rule that placing a stop never moves the camera: a pin the driver cannot see is not confirmation the fix landed where they are. It zooms no further out than it already is. |
+| D-49 | **The three square controls gather in the left corner; the distance and ETA panel takes the right.** The panel's width follows the route and the buttons' does not, so giving it the whole of the remaining width is what stops the two competing. This reverses D-44's separate row, which is no longer needed now the stop-list button has gone (D-48). |
+| D-52 | **The arrival estimate is removed.** The panel shows distance and the stop count only. ETA was the widest thing in a block that has to share a row with three buttons, and it is derived from a speed the driver is choosing rather than measuring - so it told them something they had just decided. `formatEta` stays in `format.ts`, still covered by its tests, because the estimate may return once OBD speed is driving it for real. This supersedes the ETA half of D-6. |
+| D-54 | **Mirroring flips the whole interface, not just the thumb columns.** The top row reverses, so the three squares and the distance panel swap corners; the zoom pair, the hint and the location control ride the band that reverses with them; the menu opens away from its own edge; and both drawers open from the other side. Supersedes the exemption in D-9 - a left-handed layout that mirrors half the screen is worse than one that mirrors none of it. |
+| D-55 | **The zoom pair, the hint and the location control share one band** directly under the header, aligned to its top edge, so the hint and the button sit level with the zoom-in button instead of below the whole stack. The zoom pair leads the row, which keeps it immediately beneath the menu and means a hint that comes and goes can never shunt it up and down. |
+| D-53 **[revised]** | **The zoom pair renders directly under the menu**, as a sibling of the header ahead of the status row rather than after it. It was previously last in the overlay column, so the transient hint shunted it up and down the screen as stops were added and removed - a control the driver reaches for without looking must not move. |
+| D-51 | **The status row stands down while the stop list is open.** The drawer covers roughly 306px of a 393px width at that height, so the centred hint rendered on top of the list it was explaining how to fill. Nothing is lost by hiding it: the drawer disables its own controls while a route calculates, and failures surface as toasts, which sit above everything. |
+| D-50 | **The plan drawer clears the top row by measurement.** `TopBar` publishes `--top-row-height`; the drawer's `TOP_OFFSET` reads it. The literal 4.5rem stopped being true when the distance panel moved into that row, so the panel overlapped the drawer it opens - the same class of bug as the cluster height, at the other end of the screen. The location control also stands down while the drawer is open, rather than sitting under it. |
+| D-47 | **Nothing on the map paints above the controls.** Pins are pinned to z-index 0 and the vehicle to 1; every overlay takes a named layer from one scale in `ui.ts` (cluster 10, plan drawer 20, top stack 30, history 40, modal 50, toasts 60). Mapbox assigns markers a z-index of its own for depth sorting, which let a pin dropped near a corner paint over the menu. Stacking that was implied by DOM order is now stated. |
+| D-48 | **The telemetry pill is the way into the stop list**, and the separate list button is gone. The numbers and the list describe the same thing, so a tap on "1.5/2.0 km, 3 min" asking to see which stops those are is the obvious gesture - and it returns a slot to a row that had run out of them (D-44). The count moved onto the pill. |
+| D-44 | **Telemetry gets a row of its own**, below the header rather than between the buttons in it. Its width depends on the route - `15.2/120.5 km` against `0.0/0.0 km` - and four 48px buttons plus gaps leave about 145px for a pill that wants nearer 190px on a built route. A width that varies with the data cannot share a row with a fixed set of controls. |
+| D-45 | **The thumb pairs and the zoom pair are circles**, matching the dial. `GLASS_BUTTON` no longer carries its own rounding: two `border-radius` utilities in one class list resolve by stylesheet order rather than by which was written last, so every call site states its shape. The top row keeps rounded rectangles, since those carry text and a count badge. |
+| D-46 | **Text on thin glass is a tier brighter.** The telemetry labels moved from `slate-500` to `slate-300` and the map hint from `slate-400` to `slate-100`. Those greys were chosen against 85% glass; at 60% there is not enough behind them to read against over bright tiles. |
+| D-43 | **Glass comes in two thicknesses.** `GLASS_SURFACE` (60%) for small floating controls, which are read from shape and position; `GLASS_PANEL` (85%) for Settings, the history drawer and the plan drawer, which carry body text, form fields and lists. A control can be recognised from its outline, a paragraph cannot. Both panels sit over a darkening scrim as well, which is what makes 85% sufficient rather than opaque. |
+| D-42 | **The glass surface approximates a physical pane**: thinner tint with a heavier blur and a saturation lift, a specular rim (bright inset line on the top edge, dark on the bottom) and a faint diagonal sheen. The rim does most of the work. Refraction is deliberately absent - warping the map behind each pane needs an SVG displacement filter through `backdrop-filter`, which Safari supports only partly and which would composite over a live WebGL canvas every frame, landing its cost during playback. The tint holds at 60% because legibility over sunlit tiles is real work the opacity was doing. |
+| D-41 | **The speed +/- pair is hidden while the adapter is connected**, not disabled. The car owns the speed then, and a greyed-out pair is a control the driver has to look at only to rule out. The store guard on `adjustSpeed` stays regardless: absent UI is not a closed door. The dial remains, since it is still play/pause and the reading. |
+| D-40 | **Thumb targets are square.** The left column is as wide as the dial, so a stretched child rendered a 96x72 rectangle; the columns centre their children and the buttons carry `aspect-square`. |
+| D-33 **[supersedes part of D-13]** | The marker's bottom clearance is **measured, not assumed**. `ControlPanel` publishes `--control-cluster-height`; `MapView` passes it to `trackingPadding`. The old centre fallback is removed: once the cluster passes half the viewport the middle of the screen sits *below* the top of the controls, so falling back to it hid the marker in exactly the case the clearance exists to prevent. Clearance now wins outright, floored at `MIN_VEHICLE_SCREEN_ANCHOR` (0.3) so the marker cannot climb off the top. |
+| D-30 | **Every control in the thumb columns is its own floating button.** Nothing is grouped into a shared pane: the left column stacks play, the speedometer, minus and plus; the right column stacks reset (unlocked only), step forward and step back. A shared surface read as one strip and made the individual targets harder to find by feel. |
+
+**Accepted consequence of D-17:** the app can be confidently wrong. Having left the route, the cursor keeps advancing along the planned geometry with no signal that it has diverged. This was chosen deliberately over adding GPS, and section 39 records it as the largest functional gap.
+
+## 29. Constraints
+
+* **Zero new dependencies.** The ELM327 client is hand-rolled, roughly 200-300 lines.
+* TypeScript strict; `tsc -b` and `oxlint` must stay clean.
+* No browser, no BLE and no vehicle exist in the build environment. Every on-device criterion is human-verify and must be reported as unverified rather than claimed.
+* Section 5 layout rules and V3's D-6 remain binding: the speed row stays visible while locked.
+* Foreground-only, as playback already is. Backgrounding the browser suspends both the rAF loop and BLE delivery.
+
+## 30. Glossary
+
+* **Anchor** - an absolute distance fix from the odometer that corrects accumulated integration error.
+* **Residual** - the signed difference between anchored and integrated distance, pending bleed-in.
+* **k** - calibration scale applied to integrated speed, correcting tire and quantization bias.
+* **Degraded** - tracking is connected but a sample gap exceeded `DT_MAX`, so distance is known to be under-counted.
+
+## 31. Architecture
+
+The single design requirement is that **only one file touches `navigator.bluetooth`**. Everything above that line is pure and headlessly testable against the existing `vite ssr build -> node` harness.
+
+```
+src/lib/obd/
+  transport.ts   ObdTransport interface + WebBluetoothTransport  <- only impure file
+  elm327.ts      line assembler (frames on '>'), command queue, AT init
+  pids.ts        encode/decode 010D, 01A6, support bitmaps
+  reckoning.ts   trapezoidal integrator, k estimator, residual bleed  <- pure
+```
+
+**[revised]** `useObd.ts` was not built. The session - client, poll timer, reckoning state -
+lives in the store's closure beside `stepAnimation`, for the same reason that does: it
+changes several times a second and nothing renders from it directly, so holding it in
+React state would re-render the tree for arithmetic. The store already owns non-React
+timers for toasts, so this adds no new pattern. `setObdTransportFactory()` is the seam
+the suites inject through, and `pollObdOnce()` is exposed so tests drive a cycle instead
+of waiting on an interval.
+
+```ts
+interface ObdTransport {
+  connect(): Promise<void>;
+  write(command: string): Promise<void>;
+  onData(handler: (chunk: string) => void): () => void;
+  onDisconnect(handler: () => void): () => void;
+  disconnect(): Promise<void>;
+  readonly state: 'disconnected' | 'connecting' | 'connected';
+}
+```
+
+**[revised]** This sketch originally read `onLine`. The assembler belongs to `elm327.ts`
+by this section's own file split, and a BLE notification arrives in roughly 20-byte
+fragments that cut across line boundaries, so nothing at the transport level can
+honestly hand out lines. It deals in raw chunks and the method is `onData`.
+`onDisconnect` was added because an in-flight command has to reject when the link drops,
+or a disconnect mid-drive leaves a promise pending for ever.
+
+Tests inject a scripted fake transport replaying canned ELM327 byte streams, including notifications split mid-line, since BLE delivers about 20 bytes per notification and responses frame on the `>` prompt.
+
+**Init sequence:** `ATZ`, `ATE0` (echo off - without it every response carries the echoed command), `ATL0`, `ATH0` (headers off, fewer bytes), `ATSP0`, `ATAT1`, then the probes `0100` and `01A0`.
+
+**Throughput:** commands are suffixed with the expected response count (`010D1`), which makes the ELM return immediately rather than waiting out its timeout. On a clone this is the difference between roughly 2 Hz and 5 Hz.
+
+**Decode:** `41 0D A` -> `A` km/h. `41 A6 A B C D` -> `((A<<24)|(B<<16)|(C<<8)|D) * 100` metres.
+
+## 32. Reckoning Algorithm
+
+Per speed sample `(v, t)`:
+
+```
+dt = (t - tPrev) / 1000
+if dt > DT_MAX (3 s):
+    discard interval, set degraded, tPrev = t, return
+ds    = k * ((vPrev + V_BIAS) + (v + V_BIAS)) / 2 * (1000/3600) * dt
+dsRaw = ds / k
+rawIntegratedMeters += dsRaw
+applyDistance(distance + ds + bleed(residual, dt))
+```
+
+`V_BIAS = 0.5` km/h, correcting the truncation in a 1 km/h/bit PID.
+
+Per odometer sample `odoRaw`:
+
+```
+odoDelta = (odoRaw - odoPrev) * 100          // metres
+if odoDelta <= 0: return                      // no tick yet, or rollover
+odoTotalMeters += odoDelta
+residual += odoTotalMeters - (rawIntegratedMeters * k)
+if rawIntegratedMeters > 2000:
+    k = clamp(odoTotalMeters / rawIntegratedMeters, 0.8, 1.2)
+odoPrev = odoRaw
+```
+
+The 2 km gate holds odometer quantization at or under 5% of the measurement before `k` is trusted; the clamp rejects implausible values outright.
+
+`bleed()` is exponential with a 1 s time constant, **rate-capped at `MAX_BLEED_FRACTION` (0.5) of the distance actually covered in that sample**. Small residuals ease away quickly; large ones are held to half the natural step, so a frame never moves the marker more than 1.5x its real motion. Because the cap scales with distance covered, a stationary car receives no correction at all - correct behaviour, since a cursor sliding forward while parked would be worse than a stale one.
+
+**Why the odometer is worth the poll slot.** Integrated speed error is unbounded and grows with distance; odometer error is bounded at about 100 m no matter how far the car travels, because each read is re-anchored to truth. The odometer alone is too coarse to move a cursor smoothly at a 250 m step distance, so neither source is sufficient on its own. The ratio of the two over the same interval is exactly the calibration factor, so `k` is learned without the driver measuring anything, and remains useful if `01A6` later stops answering.
+
+## 33. V4 Scope
+
+### 33.1 In Scope
+
+* `ObdTransport` plus the Web Bluetooth implementation, with runtime UUID discovery.
+* ELM327 client: line assembler, command queue, AT init, PID support probe.
+* `010D` and `01A6` decode; round-robin scheduler at roughly 4 Hz speed and 1 Hz odometer.
+* Pure reckoning module: trapezoidal integration, `k` estimation, residual bleed, `DT_MAX` guard.
+* Store: an `obd` slice, the adapter writing `config.speedKmh`, and a read-only slider while connected.
+* Connect, disconnect and status UI, feature-gated on `navigator.bluetooth`.
+* `k` persisted in settings.
+
+### 33.2 Out of Scope (deferred)
+
+* GPS of any kind, and therefore any off-route detection.
+* Trip recording, replay, planned-versus-actual overlay and export.
+* RPM, coolant, fuel level, engine load and DTC reading.
+* Silent auto-reconnect and background tracking. **Auto-reconnect is provisional**: `getDevices()` exists on the measured runtime, so it may move into scope once its behaviour is confirmed (section 37).
+* Android, Safari-native and desktop support.
+
+## 34. Acceptance Criteria
+
+* **AC-616 [revised] The location control shows the device, and nothing else.** `navigator.geolocation` present. Expected: pressing it starts a watch and renders a blue marker at the reported position, with an arrow only when a heading is known; pressing again stops the watch and removes the marker. The control is offered with or without a route, and collapses to an icon-only circle once stops exist. Must not: add a stop, move the cursor, or leave a watch running after it is switched off. Verify: automated store and render tests; the marker itself is human-verify. Required.
+* **AC-618 [revised] The first fix focuses the map.** Marker switched on, a fix returned. Expected: one focus request carrying that coordinate, and the camera flies there. Must not: raise a further request on later fixes, or zoom further out than the current view. Verify: automated store test; the flight itself is human-verify. Required.
+* **AC-617 Units switch everything at once.** Settings set to imperial. Expected: the dial reads mph, the speed buttons label in mph, the step buttons label in feet or miles, and telemetry reads miles. Switching back restores metric, which is the default. Verify: automated. Required.
+
+### Transport and protocol
+
+* **AC-601 Chunked responses assemble.** Fake transport emits `41 0D 3C\r\r>` split across three notifications at arbitrary byte boundaries. Expected: exactly one decoded sample of 60 km/h. Must not: emit a partial or duplicate sample. Verify: automated. Required.
+* **AC-602 Odometer support is probed, never assumed.** Fake transport answers `01A0` with a bitmap where the A6 bit is clear. Expected: `01A6` is never sent, and the session reports speed-only mode. Must not: send A6 anyway and treat `NO DATA` as zero. Verify: automated assertion on the command log. Required.
+* **AC-603 Init sequence and echo suppression.** On connect. Expected: `ATZ`, `ATE0`, `ATL0`, `ATH0`, `ATSP0`, `ATAT1` are sent in that order before any `01xx` request. Verify: automated. Required.
+
+### Reckoning
+
+* **AC-604 Constant speed integrates exactly.** 100 km/h held for 60 s, `k = 1`, `V_BIAS = 0`, samples every 250 ms. Expected: 1666.7 m within 0.1 m. Verify: automated. Required.
+* **AC-605 Trapezoid beats rectangle on a ramp.** Linear 0 to 100 km/h over 10 s at 250 ms. Expected: the trapezoidal result is within 0.5 m of the analytic 138.9 m, and the zero-order-hold result is recorded and is strictly worse. Verify: automated. Required.
+* **AC-606 `k` converges on a mis-scaled speedometer.** Speed samples 5% low, odometer consistent with truth, 10 km driven. Expected: `k` settles in `[1.045, 1.055]` and cumulative distance error falls below 0.5%. Must not: move `k` before 2 km of integration. Verify: automated. Required.
+* **AC-607 `k` rejects nonsense.** Odometer implying a 40% scale error. Expected: `k` clamps at 1.2 and the session flags calibration as rejected. Verify: automated. Required.
+* **AC-608 A dropout invents no distance.** Samples at 60 km/h, then a 10 s gap, then resumption. Expected: the gap contributes 0 m, `degraded` is set, and no more than 0.2 m is attributed to the gap interval. Must not: hold the last speed across the gap. Verify: automated. Required.
+* **AC-609 [revised] Corrections bleed, never jump.** A residual of +80 m injected while moving at 50 km/h. Expected: no single frame moves the cursor more than 1.5 times its uncorrected step, and the residual falls below 5 m within **12 s**, then is fully absorbed rather than abandoned. Verify: automated. Required.
+  *Constraint that forced the change:* the original criterion asked for both the 1.5x per-frame ceiling and clearance inside 4 s. Those are arithmetically incompatible. At 50 km/h the car covers 55.6 m in four seconds, so clearing 80 m as well means moving 135.6 m - about 2.4 times the natural rate, which is precisely the teleport D-20 forbids. Smoothness is the property worth keeping, so the ceiling stands and the window relaxes. Measured: the residual clears at 10.75 s, with the worst frame landing exactly on the ceiling.
+* **AC-609b A stationary car is never corrected forward.** Residual of +60 m outstanding, reported speed 0. Expected: the cursor does not move at all, and the residual is preserved for when the car moves again. Must not: creep the marker down the road while parked, which is both wrong and highly visible. Verify: automated. Required.
+* **AC-610 Odometer rollback is ignored.** A sample lower than its predecessor. Expected: no residual change, no `k` change and no negative distance. Verify: automated. Required.
+
+### Integration
+
+* **AC-611 [revised] A connected adapter writes the speed.** OBD connected, sample of 73 km/h. Expected: `config.speedKmh` is 73, the slider input is `disabled`, and the displayed speed reads 73. Must not: let a thumb drag change it. Verify: automated store and rendered-tree test. Required.
+* **AC-612 Disconnect restores manual control.** Connected, then disconnected. Expected: the slider becomes writable and retains its last value, the cursor stops advancing, and one toast fires. Verify: automated. Required.
+* **AC-613 No Bluetooth, no regression.** `navigator.bluetooth` undefined. Expected: no OBD control renders anywhere, and the rendered tree is byte-identical to the current build. Verify: automated rendered-tree comparison. Required.
+* **AC-614 Route end clamps.** Cursor within 50 m of the end with speed still arriving. Expected: distance clamps at `totalDistanceMeters`, playback stops, and one toast fires. Must not: accumulate distance past the end and desync `k`. Verify: automated. Required.
+* **AC-615 Real drive in Bluefy.** KW906 fitted, route loaded, about 10 km driven. Expected: the cursor tracks the car visibly, and end-of-drive error against the dashboard odometer is under 2%. Verify: human, on device. Unverifiable in this environment and to be reported as unverified. Required.
+
+## 35. Failure Behavior
+
+| Situation | Expected |
+|-----------|----------|
+| `navigator.bluetooth` absent (Safari) | OBD surface hidden entirely; no toast, no trace |
+| User cancels the device picker | Return to disconnected silently; no toast |
+| Adapter found but no writable notify characteristic | Error toast naming the failure; stay disconnected |
+| `ATZ` unanswered within 5 s | Abort, error toast, disconnect |
+| `01A0` shows A6 unsupported | Speed-only mode; Settings exposes a manual `k`; one info toast |
+| `01A6` answers `NO DATA` mid-drive | Stop polling it, keep the last `k`, degrade silently |
+| Sample gap beyond `DT_MAX` (3 s) | Discard the interval and set `degraded`; never integrate the gap |
+| BLE disconnect mid-drive | Stop advancing, slider writable, error toast, offer reconnect |
+| Odometer non-monotonic or rolled over | Ignore the sample entirely |
+| Ignition off and the adapter sleeps | Treated exactly as a BLE disconnect |
+| No route loaded | Connect is still offered; speed displays; the cursor does not move |
+| Connected while the route is locked | Unaffected; V3 lock semantics are unchanged |
+| Driver leaves the route | Undetectable by design (D-17). The cursor keeps advancing; V3 tap-to-move is the manual re-anchor |
+
+## 36. Phases
+
+1. **Transport and protocol** - `ObdTransport`, the fake transport, the assembler, the queue, init and decode. AC-601..603. **COMPLETE**: `src/lib/obd/{transport,elm327,pids}.ts` and `tests/obd-protocol.test.ts`, 36/36 passing.
+2. **Reckoning** - the pure integrator, `k`, the residual and the guards. AC-604..610. **COMPLETE**: `src/lib/obd/reckoning.ts` and `tests/reckoning.test.ts`, 30/30 passing, `tsc -b` and `oxlint` clean.
+3. **Store and UI** - the `obd` slice, slider takeover, connect control and the feature gate. AC-611..614. **COMPLETE**: 34/34 passing in `tests/obd-store.test.ts`.
+4. **Field verification** - Bluefy, KW906 and a real drive. AC-615 and every assumption in section 37.
+
+Phases 1 and 2 are independent and may run in parallel. Phase 4 cannot start until a Bluefy build is reachable.
+
+## 37. Measured Runtime Environment
+
+Measured on device with `public/ble-probe.html`, iPhone on iOS 18.7, Safari 27, in a
+tab on the local preview origin with the beacio extension enabled for all websites.
+These are readings, not assumptions.
+
+| Reading | Value | Consequence |
+|---------|-------|-------------|
+| `navigator.bluetooth` | present | V4 is viable; D-15 settled |
+| `requestDevice` | function | Connect path available |
+| `getDevices` | function | Silent reconnect may be possible - see below |
+| `getAvailability()` | true | Adapter radio reachable |
+| `isSecureContext` | true | Web Bluetooth and service worker both satisfied |
+| `navigator.wakeLock` | **present** | The screen-sleep risk is closed |
+| Service worker | active, 1 registration | Offline shell works in a tab |
+| `display-mode` | `browser` | No standalone; extensions cannot reach it |
+| `navigator.standalone` | false | Same |
+| Safe-area insets | 0 on all four sides | `env()` gives no protection in a tab |
+| `ControlPanel` pad-bottom | 12px (the `0.75rem` floor) | Cluster sits tight to the viewport edge |
+| Viewport | 393 x 695, screen 393 x 852 | **157px, about 18%, lost to browser chrome** |
+| D-13 clearance | preferred 174px, below the 200px floor | `camera.ts:44-47` clamps the anchor to 495px and holds exactly 200px clearance, as specified |
+
+The app sizes itself with `height: 100%` on `html, body, #root` rather than `100vh`, so
+the root box is the visible viewport and no content is hidden behind Safari's toolbar.
+The cost of a tab is a smaller map, not a broken layout.
+
+### Still to confirm
+
+* **Does `getDevices()` return previously permitted devices?** Its presence contradicts the
+  original assumption that a manual tap would be needed every session. If it works, silent
+  auto-reconnect moves from section 33.2 into scope, which materially improves the driving
+  experience - the app reconnects when the car starts instead of demanding a picker at the wheel.
+* **The KW906's real service and characteristic UUIDs**, from the probe's scan. D-16 discovers
+  them at runtime, but phase 1 wants the actual values to test against.
+* **Whether this particular car answers `01A6` at all.** Everything about bounding drift depends on it.
+* **`MIN_VEHICLE_BOTTOM_CLEARANCE = 200`** has never been validated against the Drive cluster's
+  real rendered height. Section 39 has flagged it as a guess since V3; it is now measurable.
+* **Bluefy plus Add to Home Screen**, once deployed (D-26).
+
+## 38. Verify
+
+```bash
+npm run build          # tsc -b strict + vite build
+npm run lint           # oxlint
+npm test               # headless suites
+```
+
+New suites: `tests/obd-protocol.test.ts` (AC-601..603), `tests/reckoning.test.ts` (AC-604..610) and `tests/obd-store.test.ts` (AC-611..614). Existing suites must stay green, in particular the marker-stability guard in `tests/geo.test.ts`: phase 3 writes `applyDistance` at roughly 4 Hz, which is a new load on the path that guard protects.
+
+Human-verify only, to be reported as unverified rather than claimed: AC-615, every item in section 37, and all adapter behaviour on a real vehicle.
+
+## 39. Known Risks
+
+* **There is no off-route detection at all.** This is the deliberate cost of D-17. After a missed turn the app shows a confident but wrong position with no signal that it is wrong. It is the largest functional gap, and adding GPS later is the only real fix.
+* **Odometer support is a coin flip.** If `01A6` is unsupported, drift is unbounded and the design falls back to a manual calibration constant plus tapping the route to re-anchor.
+* **Clone throughput is not guaranteed.** Four to ten responses per second is typical, but a slow adapter pushes speed sampling toward 2 Hz, where 250 ms of cursor granularity at 100 km/h is about 14 m per sample.
+* ~~Wake lock unverified~~ - **closed.** `navigator.wakeLock` is present on iOS 18.7 / Safari 27.
+* **A tab costs 18% of the map.** 695px of usable height against a 852px screen. The look-ahead
+  that V3 built the 0.75 anchor and the zoom work for is measurably reduced, and only standalone
+  would give it back - which the extension cannot provide (D-15).
+* **`MIN_VEHICLE_BOTTOM_CLEARANCE = 200` is still a guess.** In a tab the anchor clamps against it
+  on every frame rather than occasionally, so if the Drive cluster is taller than 200px the marker
+  now sits behind it permanently rather than rarely.
+* **The slider changes meaning by context** (D-21): read-only when connected, writable when not. Cheap in code, and a real source of confusion if the connection state is not obvious at a glance.
+
+# Part V - Traffic Overlays
+
+## 40. Goal
+
+Paint live road conditions over the map: congestion from Mapbox, and incidents
+(accidents, closures, road works, weather hazards) from TomTom.
+
+Mode: implement.
+
+## 41. Decisions
+
+* **D-60. Two independent overlays, not one.** Congestion and incidents have different
+  costs: the congestion tileset ships with the map tiles already being loaded, while
+  incidents are a metered third-party call. A driver who wants one is not made to pay
+  for the other, so they are separate toggles and separate persisted settings.
+* **D-61. Congestion comes from `mapbox://mapbox.mapbox-traffic-v1`.** No second key, no
+  extra request, and it caches like any other tile.
+* **D-62. Incidents come from TomTom Traffic Incidents v5,** chosen in
+  `traffic-data-research.md` over the Waze reseller on licensing grounds. Free tier is
+  2500 requests/day.
+* **D-63. The incident fetch is scoped to the route, not the viewport** (supersedes the
+  first implementation, which fetched on `moveend`). Incidents are fetched when the
+  driver commits to a route by locking it, not while planning. This is what keeps a day
+  of use inside the free tier: a drive costs one request rather than one per pan.
+* **D-64. Play fetches too, because Play locks.** `play()` sets `isRouteLocked` directly
+  rather than calling `setRouteLocked`, so both paths call one shared
+  `startIncidentsForDrive()` helper. Inlining it twice is how the two would drift.
+* **D-65. The cache is keyed on route geometry, not on route id.** Dragging a stop
+  rebuilds geometry under the same id, and stale incidents pinned to roads the driver is
+  no longer taking are worse than no incidents at all.
+* **D-66. A half-hour refresh while locked, and a manual refresh button.** Conditions
+  change over a long drive. The manual path is the only one that ignores the cache.
+* **D-67. No TomTom key is a no-op, never an error.** `traffic.status` is `unavailable`,
+  no incident control renders, no request is attempted, and nothing else in the app
+  behaves differently. Mirrors the D-24 Web Bluetooth gate.
+* **D-68. Congestion paints below the route, incident symbols above it.** A severe
+  congestion band runs along the same street as the planned route and would bury it; an
+  incident marker hidden under the route line is worse than not drawing it.
+
+## 42. Acceptance Criteria
+
+* AC-701: overlay on + route present + lock pressed -> exactly one TomTom request.
+  Verify `tests/traffic.test.ts`.
+* AC-702: [removed] the zoom floor belonged to the viewport policy (D-63).
+* AC-703: [removed] bbox containment belonged to the viewport policy (D-63).
+* AC-705: bbox is sent as `minLon,minLat,maxLon,maxLat` and the key is URL-escaped.
+* AC-706: `iconCategory` maps to a label and to one of four colour groups.
+* AC-707: every incident gets exactly one symbol, including line-geometry ones.
+* AC-708: a key present -> status `idle` and the incident controls render.
+* AC-709: toggling congestion spends no request.
+* AC-711: toggling incidents off clears the layer, the cache and the refresh timer.
+* AC-712: a failed fetch sets `status: 'error'`, raises a toast, and leaves no cache, so
+  the next lock retries.
+* AC-713: the fetched box covers the whole route, padded, with a floor so a due-north
+  route is not queried as a zero-width line.
+* AC-714: rebuilding the route invalidates the cache; the next lock re-fetches.
+* AC-715: no TomTom key -> no request on lock or on forced refresh, no throw, route
+  still locks.
+* AC-716: re-locking an unchanged route within the window spends nothing.
+* AC-717: the refresh window is 30 minutes exactly.
+* AC-718: the manual refresh fetches despite a warm cache, but not with the layer off.
+* AC-719: panning and zooming spend nothing.
+* AC-720: Play locks the route and takes the same fetch path as the lock button.
+* AC-721: switching the layer on while already locked fetches immediately.
+
+## 43. Failure Behavior
+
+| Situation | Expected |
+|---|---|
+| No `VITE_TOMTOM_API_KEY` | Incident controls not rendered; no request; app unaffected |
+| TomTom 403 (bad key) | Toast, `status: 'error'`, cache left empty so the next lock retries |
+| TomTom 429 (rate limit) | Same, with a rate-limit message |
+| Network failure | Same, with a network message |
+| Malformed incident record | That record dropped; the rest of the batch still renders |
+| Incident with no geometry | Dropped |
+| Route locked with no geometry | No request (no box to ask about) |
+
+## 44. Known Risks
+
+* **Both keys are inlined into the bundle.** Unavoidable for a browser app with no
+  server. Before any public deploy, restrict the Mapbox token by URL and the TomTom key
+  by referrer in their consoles.
+* **Route-scoped fetching means incidents off the planned route are not shown.** That is
+  the deliberate trade for staying inside the free tier. A driver who diverts far from
+  the route sees stale data until the next refresh.
+* **The congestion tileset is Mapbox's, and its coverage varies by country.** It is not
+  verified for the user's region.
+* **Not yet verified against a live TomTom response.** Parsing is tested against a
+  recorded-shape fixture, not the real API.
+
+## 45. Speed Cameras (Part V, second layer)
+
+### Decisions
+
+* **D-69. Cameras come from OpenStreetMap over Overpass,** not from a traffic vendor.
+  Camera databases are licensed products, and OSM is the only free source. It is also
+  the only one of the three hazard layers with data where this app is actually used:
+  measured 2026-09-24, TomTom returns zero incidents for all of Ukraine and the Mapbox
+  traffic tileset has no segments in Kyiv, while OSM has 28 cameras in the centre.
+* **D-70. Cameras are static, so the cache has no TTL.** Only a changed route
+  invalidates it. Re-asking Overpass every half hour for a set of fixed posts would
+  spend its goodwill for nothing.
+* **D-71. Overpass failures are silent.** The public instances rate-limit hard and
+  answer overload with an HTML error page under HTTP 200. Three mirrors are tried in
+  order, the body is checked for JSON rather than the status code, and any failure
+  leaves the layer empty with no toast. A missing camera layer is a disappointment; a
+  crashed map is a broken app.
+* **D-72. An empty result is not cached.** A throttled Overpass and a genuinely
+  camera-free road both return zero rows, and treating the first as the second would
+  hide cameras for the rest of the drive.
+* **D-73. The query is a corridor, not a bounding box.** `around:250` along a route
+  sampled to 120 points. For an L-shaped route the bounding box is many times the area,
+  and Overpass charges by the work it does.
+* **D-74. Cameras may be shown without locking.** They are static, so withholding them
+  until the lock buys nothing. Locking still fetches them alongside incidents.
+* **D-75. The lock hides the route hint but not the location button** (supersedes the
+  blanket `!isRouteLocked` gate on that band). The hint is about editing a route, which
+  the lock forbids; where the device is stays worth knowing while driving.
+
+### Acceptance Criteria
+
+* AC-730: a 5000-point route samples to 120, keeping both ends, evenly spaced.
+* AC-731: the query asks for both `highway=speed_camera` and `enforcement=maxspeed`.
+* AC-732: the query is an `around:` corridor and sends coordinates lat,lon.
+* AC-733: parsed coordinates are lon,lat, matching the rest of the app.
+* AC-734: a missing limit is null and renders no label; an mph limit converts to km/h.
+* AC-735: a node matching both tag queries is de-duplicated.
+* AC-736: a new or changed route fetches; an unchanged one does not.
+* AC-737: the manual refresh ignores the cache.
+* AC-738: switching cameras on fetches without waiting for a lock.
+* AC-739: an Overpass failure leaves the layer empty, raises no toast, and does not
+  disturb the route.
+* AC-740: an empty result is not cached, so the next lock retries.
+* AC-741: toggling cameras off clears the layer and the cache.
+* AC-742: the location button survives the route lock; the hint does not.
+
+Verify: `tests/cameras.test.ts` (60), `tests/layout.test.ts` (123).
+
+### Failure Behavior
+
+| Situation | Expected |
+|---|---|
+| All Overpass mirrors down | Layer empty, no toast, retried on the next lock |
+| Overpass returns HTML under HTTP 200 | Treated as a failure, next mirror tried |
+| Overpass returns zero cameras | Not cached; retried rather than trusted |
+| Node with no coordinate | Dropped |
+| `maxspeed` unparseable (`walk`, `RU:urban`) | Camera shown, no label |
+| No route | No request |
+
+### Known Risks
+
+* **OSM camera coverage is community-mapped and uneven,** and a camera that is not
+  mapped is not shown. This is a hint, never a guarantee.
+* **Public Overpass is not a production dependency.** It rate-limited during development
+  within a handful of queries. If the layer proves useful, the data should be baked into
+  a tileset or self-hosted rather than fetched live.
+* **Tag sampling was not verified against live Overpass output.** The count query
+  succeeded (28 nodes in central Kyiv) but body queries were throttled before a sample
+  could be read, so the parser is written against the documented OSM schema and is
+  tolerant of every optional field rather than relying on any of them.
+
+## 46. Overlay Defaults
+
+* **D-76. A layer is on by default when showing it costs nothing per use.** Congestion
+  rides map tiles that are fetched anyway and cameras come from keyless OSM, so both
+  start on; TomTom incidents are metered against a daily quota and start off. The rule is
+  cost, not usefulness: a metered layer should be a decision, a free one should not have
+  to be discovered through a menu.
+* **D-77. Defaults are read against the default, not against `=== true`.** A settings
+  blob written before these keys existed would otherwise be silently forced off, so a
+  default-on rollout would reach nobody who had ever opened the app. An explicitly stored
+  `false` is a choice and is still honoured.
+* **D-78. Cameras fetch when the route is built,** not only on lock. Being on by default
+  is meaningless if the data waits for a lock that may never come. The fetch is still
+  gated on the layer being on and the route having changed.
+
+### Acceptance Criteria
+
+* AC-743: a fresh install and an older settings blob both show congestion and cameras and
+  leave incidents off; unrelated stored preferences survive.
+* AC-744: a layer switched off by hand stays off across the default change.
+
+Verify: `tests/cameras.test.ts` (67), `tests/traffic.test.ts` (90).
+
+### Note on counting requests in tests
+
+`tests/plan.test.ts` and `tests/draw.test.ts` count Directions requests by URL rather
+than counting every `fetch`. Cameras being on by default means a route build now also
+issues an Overpass request, and an unfiltered counter no longer measures what those
+suites assert.
+
+## 47. Manual Refresh
+
+* **D-79. The refresh control is always rendered,** rather than appearing only with the
+  incidents layer on. It was hidden behind the state of one layer, which is exactly when
+  it is hardest to find, and it now refreshes incidents and cameras together: to the
+  driver there is one set of traffic data, not two schedules. Each half is individually
+  gated, so a layer that is off or a missing key simply does nothing. It stays disabled
+  with no route, because both fetches are scoped to the route.
+
+* AC-745: the refresh is present with both layers off, with no TomTom key, and while
+  locked; it is disabled only when there is no route.
+
+Verify: `tests/cameras.test.ts` (71).
