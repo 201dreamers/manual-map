@@ -1415,6 +1415,19 @@ export const useSimulationStore = create<SimulationState>()(
           await transport.connect();
           const client = createElm327(transport);
           const init = await client.initialize();
+          /*
+            Console only, like the GATT discovery it follows (D-93). Discovery alone says
+            the adapter was reached; this says what the car then answered, which is the
+            half that decides whether distance can be trusted. Without it, a paste of the
+            console shows a successful connection and nothing about the outcome.
+          */
+          console.info(
+            [
+              `[obd] adapter: ${init.identity ?? '(no identity reported)'}`,
+              `[obd] bus answered 0100: ${init.respondedToSupportProbe}`,
+              `[obd] odometer: ${init.odometerSupported} (decided by ${init.odometerSource})`,
+            ].join('\n'),
+          );
 
           obdTransport = transport;
           obdClient = client;
