@@ -1163,3 +1163,34 @@ Verify: `tests/obd-protocol.test.ts` (45).
 
 Whether the KW906 then answers `ATZ` and the mode 01 PIDs. Discovery is only the first
 gate; the ELM327 conversation past it has never run against real hardware.
+
+## 52. Odometer Confirmation Probe
+
+* **D-94. The support bitmap is confirmed by asking the car directly.** Revises AC-602,
+  which forbade sending `01A6` unless the `01A0` bitmap advertised it. The bitmap is what
+  the ECU claims, and some answer PIDs they never advertise; `01A6` was only added in SAE
+  J1979-2 and is rare enough that the claim is worth a second opinion. One command at
+  connect settles it for a given car.
+* **D-95. The hazard the original rule guarded against is untouched.** A reply is
+  believed only when it decodes as four data bytes. `NO DATA`, `?` and the rest are
+  filtered before decoding and yield null, so an unanswered probe still means no odometer
+  and can never be mistaken for a reading of zero, which would anchor the cursor to the
+  route start.
+* **D-96. The probe is skipped when the bitmap already says yes,** so a car with a
+  properly advertised odometer spends no extra command; and skipped when `0100` went
+  unanswered, because nothing is talking and the probe would only add a timeout to a
+  connection that is already degraded.
+* **D-97. `InitResult.odometerSource` records how it was decided** - `bitmap`, `probe`
+  or `none` - so the case the bitmap alone would have got wrong is visible in tests.
+
+### Acceptance Criteria
+
+* AC-602 [revised]: an unsupported odometer is still reported as unsupported, now with
+  `odometerSource: 'none'`.
+* AC-790: a car that answers `01A6` while not advertising it gets a working odometer,
+  recorded as `probe`; the driver is not told it is missing.
+* AC-791: an unanswered probe leaves the odometer off and uncalibrated.
+* AC-792: an advertised odometer is taken at its word and spends no confirmation command.
+* AC-793: a bus that ignores `0100` is not probed further.
+
+Verify: `tests/obd-protocol.test.ts` (55), `tests/obd-store.test.ts` (41).

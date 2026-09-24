@@ -46,14 +46,26 @@ const isDisabled = (markup: string, label: string): boolean | null => {
 
 /** 0x49 is 73 km/h. The adapter reports it consistently, so a poll tick is idempotent. */
 const SPEED_KMH = 73;
-const respondWith = (odometerSupported: boolean) => (command: string) => {
+/**
+ * Three cars, distinguished by how they answer about the odometer:
+ *
+ *  - `bitmap`  advertises A6 and answers it.
+ *  - `probe`   does not advertise A6 but answers it anyway. Real ECUs do this, which is
+ *              the whole reason the confirmation probe exists (D-94).
+ *  - `none`    neither advertises nor answers it.
+ */
+type OdometerBehaviour = 'bitmap' | 'probe' | 'none';
+
+const respondWith = (odometer: OdometerBehaviour) => (command: string) => {
   if (command.startsWith('AT')) return ['OK\r\r>'];
   if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
   if (command.startsWith('01A0')) {
-    return [`${obdSupportBitmap(0xa0, odometerSupported ? [0xa6] : [0xa1])}\r\r>`];
+    return [`${obdSupportBitmap(0xa0, odometer === 'bitmap' ? [0xa6] : [0xa1])}\r\r>`];
   }
   if (command.startsWith('010D')) return ['41 0D 49\r\r>'];
-  if (command.startsWith('01A6')) return ['41 A6 00 00 00 64\r\r>'];
+  if (command.startsWith('01A6')) {
+    return odometer === 'none' ? ['NO DATA\r\r>'] : ['41 A6 00 00 00 64\r\r>'];
+  }
   return ['NO DATA\r\r>'];
 };
 
@@ -76,7 +88,7 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
 
 /* ---------------- AC-611: a connected adapter writes the slider ---------------- */
 {
-  setObdTransportFactory(() => createFakeObdTransport(respondWith(true)));
+  setObdTransportFactory(() => createFakeObdTransport(respondWith('bitmap')));
   await s().connectObd();
 
   check('AC-611 the adapter reports as connected', s().obd.status === 'connected', s().obd.status);
@@ -220,24 +232,43 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
 
 /* ---------------- An odometer-less car is told, not hidden ---------------- */
 {
-  const transport = createFakeObdTransport(respondWith(false));
+  const transport = createFakeObdTransport(respondWith('none'));
   setObdTransportFactory(() => transport);
   const toastsBefore = s().toasts.length;
   await s().connectObd();
 
-  check('a car without 01A6 reports no odometer', !s().obd.odometerSupported);
+  check('a car that neither advertises nor answers 01A6 reports no odometer',
+    !s().obd.odometerSupported);
   check('the driver is told once', s().toasts.length === toastsBefore + 1);
   check(
-    '01A6 is never requested when the bitmap says it is absent',
-    !transport.sent.some((command) => command.toUpperCase().startsWith('01A6')),
+    'AC-790 the bitmap is double-checked by asking the car directly',
+    transport.sent.some((command) => command.toUpperCase().startsWith('01A6')),
     transport.sent.join(' '),
   );
+  check(
+    'AC-791 and an unanswered probe leaves the odometer off, not calibrated from zero',
+    !s().obd.odometerSupported && !s().obd.isCalibrated,
+  );
+  await s().disconnectObd();
+}
+
+/* ---------------- A car that answers a PID it does not advertise ---------------- */
+{
+  const transport = createFakeObdTransport(respondWith('probe'));
+  setObdTransportFactory(() => transport);
+  const toastsBefore = s().toasts.length;
+  await s().connectObd();
+
+  check('AC-790 the odometer is used when the car answers despite the bitmap',
+    s().obd.odometerSupported);
+  check('AC-790 and the driver is not told it is missing',
+    s().toasts.length === toastsBefore, `${s().toasts.length - toastsBefore} toasts`);
   await s().disconnectObd();
 }
 
 /* ---------------- A dropped link is surfaced, not swallowed ---------------- */
 {
-  const transport = createFakeObdTransport(respondWith(true));
+  const transport = createFakeObdTransport(respondWith('bitmap'));
   setObdTransportFactory(() => transport);
   await s().connectObd();
   const toastsBefore = s().toasts.length;

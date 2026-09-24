@@ -11,6 +11,7 @@ import {
   PID_SUPPORT_BASE_00,
   PID_SUPPORT_BASE_A0,
   buildMode01Request,
+  decodeOdometerRaw,
   decodeSupportBitmap,
   isPidSupported,
 } from './pids';
@@ -88,8 +89,13 @@ export const COMMAND_TIMEOUT_MS = 1000;
 export interface InitResult {
   /** Whatever the adapter called itself after reset, e.g. `ELM327 v1.5`. */
   identity: string | null;
-  /** D-18: probed from the 01A0 bitmap, never assumed. */
+  /** D-18: probed from the 01A0 bitmap and then, if that says no, from 01A6 itself. */
   odometerSupported: boolean;
+  /**
+   * How that was decided. `probe` means the car answered a PID it does not advertise,
+   * which is the case the bitmap alone would have got wrong.
+   */
+  odometerSource: 'bitmap' | 'probe' | 'none';
   /** Present when the car answered the 0100 probe at all. */
   respondedToSupportProbe: boolean;
 }
@@ -190,14 +196,39 @@ export function createElm327(transport: ObdTransport): Elm327Client {
     const baseLines = await send(buildMode01Request(PID_SUPPORT_BASE_00));
     const respondedToSupportProbe = decodeSupportBitmap(baseLines, PID_SUPPORT_BASE_00) !== null;
 
-    // D-18 and AC-602: the odometer block is probed, and 01A6 is never sent unless this
-    // says it exists. Treating a NO DATA as zero would anchor the cursor to the start.
+    // D-18: the odometer block is probed rather than assumed.
     const odometerLines = await send(buildMode01Request(PID_SUPPORT_BASE_A0));
     const odometerBitmap = decodeSupportBitmap(odometerLines, PID_SUPPORT_BASE_A0);
-    const odometerSupported =
-      odometerBitmap !== null && isPidSupported(odometerBitmap, PID_SUPPORT_BASE_A0, PID_ODOMETER);
+    if (
+      odometerBitmap !== null &&
+      isPidSupported(odometerBitmap, PID_SUPPORT_BASE_A0, PID_ODOMETER)
+    ) {
+      return { identity, odometerSupported: true, odometerSource: 'bitmap', respondedToSupportProbe };
+    }
 
-    return { identity, odometerSupported, respondedToSupportProbe };
+    /*
+      D-94, revising AC-602: ask the car directly when the bitmap says no.
+
+      The bitmap is what the ECU claims, and some answer PIDs they never advertise -
+      including on the vehicle this was first tested against, where 01A6 is rare enough
+      that the claim is worth a second opinion. One command at connect settles it.
+
+      The hazard the original rule guarded against is untouched: a reply is only believed
+      when it decodes as four data bytes. `NO DATA`, `?` and the rest are filtered before
+      decoding and yield null, so an unanswered probe still means no odometer and can
+      never be mistaken for a reading of zero, which would anchor the cursor to the start.
+
+      Skipped when the bus never answered 0100 at all: nothing is talking, so the probe
+      would only add a timeout to a connection that is already degraded.
+    */
+    if (respondedToSupportProbe) {
+      const direct = await send(buildMode01Request(PID_ODOMETER));
+      if (decodeOdometerRaw(direct) !== null) {
+        return { identity, odometerSupported: true, odometerSource: 'probe', respondedToSupportProbe };
+      }
+    }
+
+    return { identity, odometerSupported: false, odometerSource: 'none', respondedToSupportProbe };
   }
 
   return {

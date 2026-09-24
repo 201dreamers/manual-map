@@ -87,12 +87,70 @@ import {
   const result = await client.initialize();
 
   check('AC-602 unsupported odometer is reported as unsupported', !result.odometerSupported);
+  check('AC-602 and says so was settled by asking', result.odometerSource === 'none',
+    result.odometerSource);
   check(
-    'AC-602 01A6 is never sent when the bitmap says it is absent',
-    !client.commandLog.some((command) => command.toUpperCase().startsWith('01A6')),
+    'AC-790 the bitmap is confirmed by asking the car directly [revised from AC-602]',
+    client.commandLog.some((command) => command.toUpperCase().startsWith('01A6')),
     client.commandLog.join(' '),
   );
+  check('AC-791 a NO DATA reply is not read as a reading', decodeOdometerRaw(['NO DATA']) === null);
   check('AC-602 the support probe itself was answered', result.respondedToSupportProbe);
+  client.dispose();
+}
+
+/* ---------------- AC-790: a car that answers a PID it does not advertise ---------------- */
+{
+  const transport = createFakeObdTransport((command) => {
+    if (command.startsWith('AT')) return ['OK\r\r>'];
+    if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+    // A6 clear in the bitmap, yet the car answers 01A6 perfectly well.
+    if (command.startsWith('01A0')) return [`${obdSupportBitmap(0xa0, [0xa1])}\r\r>`];
+    if (command.startsWith('01A6')) return ['41 A6 00 01 86 A0\r\r>'];
+    return ['NO DATA\r\r>'];
+  });
+  const client = createElm327(transport);
+  const result = await client.initialize();
+
+  check('AC-790 the answer wins over the claim', result.odometerSupported);
+  check('AC-790 and records how it was decided', result.odometerSource === 'probe',
+    result.odometerSource);
+  client.dispose();
+}
+
+/* ---------------- AC-792: a bitmap that says yes costs no extra command ---------------- */
+{
+  const transport = createFakeObdTransport((command) => {
+    if (command.startsWith('AT')) return ['OK\r\r>'];
+    if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+    if (command.startsWith('01A0')) return [`${obdSupportBitmap(0xa0, [0xa6])}\r\r>`];
+    return ['NO DATA\r\r>'];
+  });
+  const client = createElm327(transport);
+  const result = await client.initialize();
+
+  check('AC-792 an advertised odometer is taken at its word', result.odometerSupported);
+  check('AC-792 from the bitmap', result.odometerSource === 'bitmap');
+  check('AC-792 and no confirmation command is spent',
+    !client.commandLog.some((command) => command.toUpperCase().startsWith('01A6')),
+    client.commandLog.join(' '));
+  client.dispose();
+}
+
+/* ---------------- AC-793: a silent bus is not probed further ---------------- */
+{
+  const transport = createFakeObdTransport((command) => {
+    if (command.startsWith('AT')) return ['OK\r\r>'];
+    return ['NO DATA\r\r>'];
+  });
+  const client = createElm327(transport);
+  const result = await client.initialize();
+
+  check('AC-793 a bus that ignores 0100 is reported as such', !result.respondedToSupportProbe);
+  check('AC-793 and reports no odometer', !result.odometerSupported);
+  check('AC-793 without spending a probe on a bus that is not talking',
+    !client.commandLog.some((command) => command.toUpperCase().startsWith('01A6')),
+    client.commandLog.join(' '));
   client.dispose();
 }
 
