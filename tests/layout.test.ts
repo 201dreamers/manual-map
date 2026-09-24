@@ -649,4 +649,43 @@ check(
   check('the dismiss control survives', markup.includes('aria-label="Dismiss"'));
 }
 
+/* ---------------- The plan drawer must not squeeze the search box ---------------- */
+
+{
+  Object.assign(initialSnapshot, useSimulationStore.getState(), {
+    isPlanOpen: true,
+    routePoints: [
+      { id: 'a', coordinate: [30.5, 50.45] as [number, number], label: 'Start' },
+      { id: 'b', coordinate: [30.5, 50.46] as [number, number], label: 'Via' },
+      { id: 'c', coordinate: [30.5, 50.47] as [number, number], label: 'End' },
+    ],
+  });
+  const drawer = renderToStaticMarkup(createElement(PlanDrawer));
+
+  /*
+    The drawer is a fixed-height flex column. A flex child defaults to
+    `min-height: auto`, so a stop list taller than the drawer refuses to shrink and the
+    overflow lands on whichever sibling can give way - the search panel, whose results
+    then collapse. That is why search broke the moment a stop existed.
+  */
+  const scroller = drawer.slice(
+    drawer.indexOf('flex-1 overflow-y-auto') - 60,
+    drawer.indexOf('flex-1 overflow-y-auto') + 30,
+  );
+  check('AC-800 the scrolling stop list may shrink below its content',
+    scroller.includes('min-h-0'), scroller);
+
+  check('AC-800 the search box holds its height instead',
+    drawer.includes('shrink-0 border-b border-slate-700'), 'search panel shrink-0');
+  check('AC-800 and so does the header',
+    drawer.includes('flex shrink-0 items-center justify-between'), 'header shrink-0');
+  check('AC-801 the results list is capped against the viewport, not a fixed 224px',
+    !drawer.includes('max-h-56'));
+
+  // The search box itself has to be present alongside a full stop list.
+  check('AC-802 the search input renders with stops present',
+    drawer.includes('aria-label="Search for an address"'));
+  check('AC-802 alongside the stops themselves', drawer.includes('Via'));
+}
+
 report('layout');

@@ -24,7 +24,9 @@ export function SearchPanel() {
   const isActive = searchQuery.trim().length >= MIN_SEARCH_LENGTH;
 
   return (
-    <div className="border-b border-slate-700">
+    // shrink-0: the search box and its results keep their height, and the stop list
+    // below scrolls instead. The control being used wins the space over the list.
+    <div className="shrink-0 border-b border-slate-700">
       <div className="flex items-center gap-2 px-3 py-2">
         <Search size={16} className="shrink-0 text-slate-500" />
         <input
@@ -66,7 +68,7 @@ export function SearchPanel() {
       )}
 
       {isActive && searchResults.length > 0 && (
-        <ul className="max-h-56 overflow-y-auto border-t border-slate-800">
+        <ul className="max-h-[min(14rem,35vh)] overflow-y-auto border-t border-slate-800">
           {searchResults.map((result) => (
             <li key={result.id} className="border-b border-slate-800 last:border-b-0">
               <button

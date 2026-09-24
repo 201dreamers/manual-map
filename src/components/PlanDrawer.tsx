@@ -59,7 +59,7 @@ export function PlanDrawer() {
       style={{ bottom: BOTTOM_OFFSET, top: TOP_OFFSET }}
       className={`pointer-events-auto absolute ${controlsMirrored ? 'left-3' : 'right-3'} ${Z_DRAWER} flex w-[min(20rem,78vw)] flex-col overflow-hidden rounded-2xl ${GLASS_PANEL}`}
     >
-      <header className="flex items-center justify-between border-b border-slate-700 px-3 py-2">
+      <header className="flex shrink-0 items-center justify-between border-b border-slate-700 px-3 py-2">
         <h2 className="text-sm font-medium text-slate-100">
           Stops{total > 0 && <span className="ml-1.5 text-slate-500">{total}</span>}
         </h2>
@@ -75,7 +75,15 @@ export function PlanDrawer() {
 
       <SearchPanel />
 
-      <div className="flex-1 overflow-y-auto">
+      {/*
+        `min-h-0` is what makes this scroll instead of pushing. A flex child defaults to
+        `min-height: auto`, so a list taller than the drawer refuses to shrink and the
+        overflow lands on whichever sibling can give way - here the search panel, whose
+        results then collapse to nothing. That is why address search appeared to break
+        the moment a stop existed and worked fine on an empty route: with no stops this
+        list is one short line and nothing has to shrink.
+      */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {total === 0 ? (
           <p className="flex items-center gap-2 px-3 py-4 text-xs leading-relaxed text-slate-500">
             <MapPin size={16} className="shrink-0" />
