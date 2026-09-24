@@ -172,6 +172,7 @@ src/
     traffic.ts             # TomTom incidents: fetch policy, parsing, GeoJSON for the layers
     cameras.ts             # OSM speed cameras over Overpass: corridor query, parsing, mirrors
     geolocation.ts         # device position watch and GPS/compass heading handover
+    obd/gpsAnchor.ts       # calibrating reckoning against GPS that may be spoofed or frozen
     useAnimationLoop.ts    # rAF simulation loop
     useWakeLock.ts         # screen wake lock during playback
   store/simulationStore.ts # Zustand state, route building, step and playback logic

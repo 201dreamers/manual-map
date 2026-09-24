@@ -353,4 +353,137 @@ import {
     findSerialChannel([make('0000fff3-0000-1000-8000-00805f9b34fb', false, false, false)]) === null);
 }
 
+/* ---------------- PID 0131: the distance counter fallback ---------------- */
+
+{
+  const { decodeDistanceKm, DISTANCE_UNIT_METERS } = await import('../src/lib/obd/pids');
+
+  check('AC-830 a two-byte distance decodes as whole kilometres',
+    decodeDistanceKm(['41 31 01 2C']) === 300, String(decodeDistanceKm(['41 31 01 2C'])));
+  check('AC-830 zero decodes as zero, not null', decodeDistanceKm(['41 31 00 00']) === 0);
+  check('AC-830 the full range decodes', decodeDistanceKm(['41 31 FF FF']) === 65535);
+  check('AC-830 a short reply is rejected', decodeDistanceKm(['41 31 01']) === null);
+  check('AC-830 NO DATA is rejected', decodeDistanceKm(['NO DATA']) === null);
+  check('AC-830 a reply to another PID is rejected', decodeDistanceKm(['41 0D 4B']) === null);
+  check('AC-830 one count is a kilometre', DISTANCE_UNIT_METERS === 1000);
+}
+
+const counterAdapter = (opts: { odometer: boolean; distance: boolean }) => (command: string) => {
+  if (command.startsWith('AT')) return ['OK\r\r>'];
+  if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+  if (command.startsWith('01A0')) {
+    return [`${obdSupportBitmap(0xa0, opts.odometer ? [0xa6] : [0xa1])}\r\r>`];
+  }
+  if (command.startsWith('0120')) {
+    return [`${obdSupportBitmap(0x20, opts.distance ? [0x31] : [0x21])}\r\r>`];
+  }
+  if (command.startsWith('01A6')) {
+    return opts.odometer ? ['41 A6 00 01 86 A0\r\r>'] : ['NO DATA\r\r>'];
+  }
+  if (command.startsWith('0131')) {
+    return opts.distance ? ['41 31 01 2C\r\r>'] : ['NO DATA\r\r>'];
+  }
+  return ['NO DATA\r\r>'];
+};
+
+{
+  // The measured case: no odometer, but the car does have 0131.
+  const client = createElm327(createFakeObdTransport(counterAdapter({ odometer: false, distance: true })));
+  const result = await client.initialize();
+  check('AC-831 a car with no odometer falls back to the distance counter',
+    result.counter === 'distance', result.counter);
+  check('AC-831 found from its bitmap', result.counterSource === 'bitmap', result.counterSource);
+  check('AC-831 and the odometer is still reported absent', !result.odometerSupported);
+  client.dispose();
+}
+
+{
+  // Both present: the finer counter wins and 0131 is never asked for.
+  const client = createElm327(createFakeObdTransport(counterAdapter({ odometer: true, distance: true })));
+  const result = await client.initialize();
+  check('AC-832 the odometer is preferred over the coarser counter',
+    result.counter === 'odometer', result.counter);
+  check('AC-832 and no distance command is spent',
+    !client.commandLog.some((command) => command.toUpperCase().startsWith('0131')),
+    client.commandLog.join(' '));
+  client.dispose();
+}
+
+{
+  // Neither: the reckoner is on its own, and says so.
+  const client = createElm327(createFakeObdTransport(counterAdapter({ odometer: false, distance: false })));
+  const result = await client.initialize();
+  check('AC-833 a car with neither counter reports none', result.counter === 'none', result.counter);
+  check('AC-833 having asked for both directly',
+    client.commandLog.some((c) => c.toUpperCase().startsWith('01A6')) &&
+      client.commandLog.some((c) => c.toUpperCase().startsWith('0131')),
+    client.commandLog.join(' '));
+  client.dispose();
+}
+
+{
+  // 0131 answered while unadvertised, the same second-opinion rule as the odometer.
+  const client = createElm327(
+    createFakeObdTransport((command: string) => {
+      if (command.startsWith('AT')) return ['OK\r\r>'];
+      if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+      if (command.startsWith('01A0')) return [`${obdSupportBitmap(0xa0, [0xa1])}\r\r>`];
+      if (command.startsWith('0120')) return [`${obdSupportBitmap(0x20, [0x21])}\r\r>`];
+      if (command.startsWith('0131')) return ['41 31 01 2C\r\r>'];
+      return ['NO DATA\r\r>'];
+    }),
+  );
+  const result = await client.initialize();
+  check('AC-834 an unadvertised distance counter is found by asking',
+    result.counter === 'distance' && result.counterSource === 'probe',
+    `${result.counter}/${result.counterSource}`);
+  client.dispose();
+}
+
+{
+  // A silent bus is not probed for either counter.
+  const client = createElm327(
+    createFakeObdTransport((command: string) =>
+      command.startsWith('AT') ? ['OK\r\r>'] : ['NO DATA\r\r>'],
+    ),
+  );
+  const result = await client.initialize();
+  check('AC-835 a silent bus yields no counter and no probing',
+    result.counter === 'none' &&
+      !client.commandLog.some((c) => c.toUpperCase().startsWith('0131')),
+    client.commandLog.join(' '));
+  client.dispose();
+}
+
+/* ---------------- the reckoner takes either unit ---------------- */
+
+{
+  const { applyOdometerSample, applySpeedSample, createReckoningState, applyExternalCalibration } =
+    await import('../src/lib/obd/reckoning');
+  const { DISTANCE_UNIT_METERS } = await import('../src/lib/obd/pids');
+
+  let state = createReckoningState();
+  state = applyOdometerSample(state, 100, DISTANCE_UNIT_METERS);
+  state = applyOdometerSample(state, 102, DISTANCE_UNIT_METERS);
+  check('AC-836 two counts of 0131 are two kilometres',
+    Math.abs(state.odoTotalMeters - 2000) < 1e-6, `${state.odoTotalMeters} m`);
+
+  let odo = createReckoningState();
+  odo = applyOdometerSample(odo, 100);
+  odo = applyOdometerSample(odo, 102);
+  check('AC-836 while two counts of 01A6 are 200 metres',
+    Math.abs(odo.odoTotalMeters - 200) < 1e-6, `${odo.odoTotalMeters} m`);
+
+  // External calibration shares the counter path's bounds, and rejects rather than clamps.
+  let external = applySpeedSample(createReckoningState(), 50, 0);
+  external = applyExternalCalibration(external, 1.05);
+  check('AC-837 an in-range external factor is accepted',
+    Math.abs(external.k - 1.05) < 1e-9 && external.isCalibrated);
+  const refused = applyExternalCalibration(external, 40);
+  check('AC-837 an out-of-range one is refused, not clamped',
+    Math.abs(refused.k - 1.05) < 1e-9 && refused.calibrationRejected, `${refused.k}`);
+  check('AC-837 and a non-finite one is refused',
+    applyExternalCalibration(external, Number.NaN).k === external.k);
+}
+
 report('obd-protocol');

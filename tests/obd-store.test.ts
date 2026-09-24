@@ -281,4 +281,56 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
   await s().disconnectObd();
 }
 
+/* ---------------- the 0131 counter is polled when there is no odometer ---------------- */
+
+{
+  const transport = createFakeObdTransport((command: string) => {
+    if (command.startsWith('AT')) return ['OK\r\r>'];
+    if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+    if (command.startsWith('01A0')) return [`${obdSupportBitmap(0xa0, [0xa1])}\r\r>`];
+    if (command.startsWith('0120')) return [`${obdSupportBitmap(0x20, [0x31])}\r\r>`];
+    if (command.startsWith('010D')) return ['41 0D 49\r\r>'];
+    if (command.startsWith('0131')) return ['41 31 01 2C\r\r>'];
+    return ['NO DATA\r\r>'];
+  });
+  setObdTransportFactory(() => transport);
+  await s().connectObd();
+
+  check('AC-838 a car with only 0131 still connects', s().obd.status === 'connected');
+  check('AC-838 and reports no odometer', !s().obd.odometerSupported);
+
+  // Drive the poll enough times to reach the counter cycle. Sliced from here, because
+  // 01A6 is legitimately sent once during init as the confirmation probe (D-94); what
+  // matters is which counter the *polling* then settles on.
+  const beforePolling = transport.sent.length;
+  for (let tick = 0; tick < 10; tick += 1) await s().pollObdOnce();
+  const polled = transport.sent.slice(beforePolling);
+
+  check('AC-838 the distance counter is polled',
+    polled.some((command) => command.toUpperCase().startsWith('0131')), polled.join(' '));
+  check('AC-838 and the odometer PID is not polled',
+    !polled.some((command) => command.toUpperCase().startsWith('01A6')), polled.join(' '));
+  await s().disconnectObd();
+}
+
+{
+  // With neither counter, nothing is polled for distance at all.
+  const transport = createFakeObdTransport((command: string) => {
+    if (command.startsWith('AT')) return ['OK\r\r>'];
+    if (command.startsWith('0100')) return [`${obdSupportBitmap(0x00, [0x0d])}\r\r>`];
+    if (command.startsWith('010D')) return ['41 0D 49\r\r>'];
+    return ['NO DATA\r\r>'];
+  });
+  setObdTransportFactory(() => transport);
+  await s().connectObd();
+  const beforeCount = transport.sent.length;
+  for (let tick = 0; tick < 10; tick += 1) await s().pollObdOnce();
+  const polled = transport.sent.slice(beforeCount);
+
+  check('AC-839 with no counter only speed is polled',
+    polled.every((command) => command.toUpperCase().startsWith('010D')),
+    polled.join(' '));
+  await s().disconnectObd();
+}
+
 report('obd-store');

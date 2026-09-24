@@ -8,9 +8,12 @@ import { ObdError } from './transport';
 import type { ObdTransport } from './transport';
 import {
   PID_ODOMETER,
+  PID_DISTANCE,
   PID_SUPPORT_BASE_00,
+  PID_SUPPORT_BASE_20,
   PID_SUPPORT_BASE_A0,
   buildMode01Request,
+  decodeDistanceKm,
   decodeOdometerRaw,
   decodeSupportBitmap,
   isPidSupported,
@@ -86,6 +89,15 @@ export const RESET_TIMEOUT_MS = 5000;
 /** Everything else should answer well inside this, and a stall must not block the queue. */
 export const COMMAND_TIMEOUT_MS = 1000;
 
+/**
+ * Which absolute distance counter the session will anchor to.
+ *
+ * `odometer` (01A6) is preferred at 100 m per count; `distance` (0131) is ten times
+ * coarser but far more widely supported. `none` means the car offers neither and the
+ * reckoner has only integrated speed, plus whatever GPS can safely contribute.
+ */
+export type CounterKind = 'odometer' | 'distance' | 'none';
+
 export interface InitResult {
   /** Whatever the adapter called itself after reset, e.g. `ELM327 v1.5`. */
   identity: string | null;
@@ -96,6 +108,10 @@ export interface InitResult {
    * which is the case the bitmap alone would have got wrong.
    */
   odometerSource: 'bitmap' | 'probe' | 'none';
+  /** The counter actually chosen, best first. */
+  counter: CounterKind;
+  /** How the chosen counter was found, for the same reason `odometerSource` exists. */
+  counterSource: 'bitmap' | 'probe' | 'none';
   /** Present when the car answered the 0100 probe at all. */
   respondedToSupportProbe: boolean;
 }
@@ -180,6 +196,17 @@ export function createElm327(transport: ObdTransport): Elm327Client {
     return next;
   }
 
+  /** Bitmap first, then the PID itself. Returns how it was found, or `none`. */
+  async function findDistanceCounter(): Promise<'bitmap' | 'probe' | 'none'> {
+    const bitmapLines = await send(buildMode01Request(PID_SUPPORT_BASE_20));
+    const bitmap = decodeSupportBitmap(bitmapLines, PID_SUPPORT_BASE_20);
+    if (bitmap !== null && isPidSupported(bitmap, PID_SUPPORT_BASE_20, PID_DISTANCE)) {
+      return 'bitmap';
+    }
+    const direct = await send(buildMode01Request(PID_DISTANCE));
+    return decodeDistanceKm(direct) !== null ? 'probe' : 'none';
+  }
+
   async function initialize(): Promise<InitResult> {
     let identity: string | null = null;
 
@@ -203,7 +230,14 @@ export function createElm327(transport: ObdTransport): Elm327Client {
       odometerBitmap !== null &&
       isPidSupported(odometerBitmap, PID_SUPPORT_BASE_A0, PID_ODOMETER)
     ) {
-      return { identity, odometerSupported: true, odometerSource: 'bitmap', respondedToSupportProbe };
+      return {
+        identity,
+        odometerSupported: true,
+        odometerSource: 'bitmap',
+        counter: 'odometer',
+        counterSource: 'bitmap',
+        respondedToSupportProbe,
+      };
     }
 
     /*
@@ -224,11 +258,36 @@ export function createElm327(transport: ObdTransport): Elm327Client {
     if (respondedToSupportProbe) {
       const direct = await send(buildMode01Request(PID_ODOMETER));
       if (decodeOdometerRaw(direct) !== null) {
-        return { identity, odometerSupported: true, odometerSource: 'probe', respondedToSupportProbe };
+        return {
+          identity,
+          odometerSupported: true,
+          odometerSource: 'probe',
+          counter: 'odometer',
+          counterSource: 'probe',
+          respondedToSupportProbe,
+        };
       }
     }
 
-    return { identity, odometerSupported: false, odometerSource: 'none', respondedToSupportProbe };
+    /*
+      No odometer. Fall back to 0131, which most cars do have: it counts whole kilometres
+      since codes were cleared, which is ten times coarser but still an absolute counter,
+      and an absolute counter of any resolution beats none. Same two-step as above - the
+      bitmap first, then the PID itself, because the bitmap understates reality often
+      enough to be worth one command.
+    */
+    const distanceCounter = respondedToSupportProbe
+      ? await findDistanceCounter()
+      : ('none' as const);
+
+    return {
+      identity,
+      odometerSupported: false,
+      odometerSource: 'none',
+      counter: distanceCounter === 'none' ? 'none' : 'distance',
+      counterSource: distanceCounter,
+      respondedToSupportProbe,
+    };
   }
 
   return {

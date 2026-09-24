@@ -1227,3 +1227,95 @@ always - and would have broken on an adapter that advertises only `write`.
 Outstanding: the connection now succeeds and the odometer reports absent. Whether the
 confirmation probe of D-94 changes that on this car, and whether speed tracks correctly
 over a real drive, are both still unmeasured.
+
+# Part VI - Calibrating Without a Trustworthy Reference
+
+## 54. Goal
+
+Keep OBD-derived distance honest on a car with no odometer PID, in a region where
+satellite positioning is routinely jammed and spoofed.
+
+## 55. The distance counter (PID 0131)
+
+* **D-98. `0131` is the fallback counter.** "Distance travelled since codes cleared",
+  two bytes of whole kilometres, part of the original OBD-II set rather than a 2021
+  addition, so far more widely supported than `01A6`. It is not an odometer - clearing
+  codes resets it - but calibration needs a counter that rises in step with real
+  distance, not one that agrees with the dashboard. A reset looks like a rollover and
+  `applyOdometerSample` already refuses those.
+* **D-99. The odometer is preferred where both exist,** at 100 m per count against
+  1000 m, and `0131` is then never requested.
+* **D-100. The same two-step probe as D-94:** the `0120` bitmap first, then the PID
+  itself, because the bitmap understates reality often enough to be worth one command.
+  Skipped entirely on a bus that ignored `0100`.
+* **D-101. `applyOdometerSample` takes the unit as an argument** rather than reading a
+  constant, so one anchoring path serves both counters and exactly one place still knows
+  what a count is worth.
+
+## 56. The GPS anchor
+
+The constraint that shapes all of it: in this region GPS fixes jump thousands of
+kilometres or freeze for minutes and resume. The calibration factor persists between
+drives, so one bad window silently rescales every distance the app reports thereafter.
+
+* **D-102. The trust relationship is inverted.** On the counter path the odometer is
+  truth and integrated speed is the estimate. Here **integrated speed is the reference
+  and GPS is the candidate**. The two fail in unrelated ways - spoofing moves GPS but
+  cannot touch the wheel-speed sensor, tyre wear skews the sensor but not GPS - so
+  sustained agreement is evidence. Disagreement discards the window; it never splits the
+  difference.
+* **D-103. Fixes are projected onto the route before use.** That converts a position
+  into a distance along the road and discards lateral error in the process, since an
+  error perpendicular to travel barely moves the along-route figure. It reuses
+  `projectOntoRoute`, which already exists for tap-to-move.
+* **D-104. Four per-fix gates,** each catching a different observed failure: accuracy
+  (weakest, since a spoofer controls the reported value), off-route, gross teleport by
+  implied speed, and a frozen receiver. The frozen gate is why the reckoner has to be the
+  arbiter - it separates a stuck receiver from a red light, which GPS cannot do alone.
+* **D-105. A rejection voids the window, including any pending candidate.** Otherwise
+  two windows either side of a spoof could vouch for each other.
+* **D-106. Out-of-band ratios are rejected, not clamped.** Clamping suits a counter,
+  whose errors are small and physical. A spoofed window can be wrong by orders of
+  magnitude, and clamping a ratio of 40 to 1.2 would bake in the largest error the band
+  permits. `applyExternalCalibration` enforces this for every non-counter route into `k`.
+* **D-107. Two consecutive agreeing windows commit, and only by a bounded step.** Real
+  drift is tyre wear over months, so there is never a reason to jump. Even if every gate
+  above were defeated, damage per drive is capped at `MAX_CALIBRATION_STEP`.
+* **D-108. The governing asymmetry:** refusing to calibrate costs nothing; calibrating
+  wrongly is durable. Every ambiguous case resolves to "don't".
+
+## 57. Acceptance Criteria
+
+* AC-830: `0131` decodes as whole kilometres; short, wrong-PID and `NO DATA` replies
+  are rejected.
+* AC-831: a car with no odometer falls back to the distance counter.
+* AC-832: the odometer is preferred where both exist, and `0131` is never requested.
+* AC-833: neither counter reports `none`, having asked for both directly.
+* AC-834: an unadvertised `0131` is found by asking.
+* AC-835: a silent bus is not probed for either counter.
+* AC-836: the reckoner anchors correctly at both 100 m and 1000 m per count.
+* AC-837: external calibration accepts in-range factors and refuses out-of-range and
+  non-finite ones without clamping.
+* AC-838/839: the store polls whichever counter the car has, and only speed when neither.
+* AC-810/811: off-route, unprojectable and low-accuracy fixes are rejected; an
+  unreported accuracy is still usable.
+* AC-812/813: a continental jump and a fix disagreeing with the wheels are both rejected
+  and void the window.
+* AC-814: a receiver frozen while the car moves is caught, on accumulated reckoned
+  movement.
+* AC-815: sitting at a red light is not mistaken for a frozen receiver.
+* AC-816-818: one window commits nothing; two agreeing windows commit, by no more than
+  one bounded step.
+* AC-819: disagreeing windows commit nothing.
+* AC-820: an out-of-band window is rejected rather than clamped.
+* AC-821: a spoof voids the pending candidate, so the window after it cannot commit alone.
+* AC-822: rejections are counted, so an absence of calibration is explicable.
+
+Verify: `tests/gps-anchor.test.ts` (25), `tests/obd-protocol.test.ts` (79),
+`tests/obd-store.test.ts` (46).
+
+## 58. Still unmeasured
+
+Whether this car answers `0131` at all - the console now reports the chosen counter at
+connect - and whether the GPS gates behave against real jamming rather than synthetic
+fixtures. Both need a drive.

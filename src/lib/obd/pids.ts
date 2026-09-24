@@ -16,6 +16,25 @@ export const PID_SPEED = 0x0d;
  */
 export const PID_ODOMETER = 0xa6;
 
+/**
+ * Distance travelled since the diagnostic codes were last cleared. Two bytes, whole
+ * kilometres, part of the original OBD-II set rather than a 2021 addition, so it is far
+ * more widely supported than the odometer above.
+ *
+ * It is not an odometer - clearing codes resets it - but for calibration that does not
+ * matter: what the reckoner needs is a counter that increases in step with real distance,
+ * not one that agrees with the dashboard. A reset looks like a rollover and is already
+ * refused by `applyOdometerSample`.
+ *
+ * Its 1 km resolution is ten times coarser than 01A6, which is why it is the second
+ * choice where both exist, and still useful: the calibration gate needs 2 km before it
+ * trusts anything, so a usable anchor has arrived by the time it is asked for.
+ */
+export const PID_DISTANCE = 0x31;
+
+/** PID 0131 counts whole kilometres, so one count is 1000 metres. */
+export const DISTANCE_UNIT_METERS = 1000;
+
 /** Mode 01 marks a reply by setting bit 6 of the request mode. */
 const MODE_01_REPLY = 0x41;
 
@@ -24,6 +43,8 @@ const MODE_01_REPLY = 0x41;
  * `0100` covers 0x01-0x20 and `01A0` covers 0xA1-0xC0 - the block the odometer lives in.
  */
 export const PID_SUPPORT_BASE_00 = 0x00;
+/** Covers 0x21-0x40, the block holding the distance counter at 0x31. */
+export const PID_SUPPORT_BASE_20 = 0x20;
 export const PID_SUPPORT_BASE_A0 = 0xa0;
 
 /**
@@ -98,6 +119,16 @@ export function decodeOdometerRaw(lines: string[]): number | null {
   if (!data || data.length < 4) return null;
   // Unsigned 32-bit big-endian. Shifting would go negative at bit 31, so multiply.
   return data[0] * 0x1000000 + data[1] * 0x10000 + data[2] * 0x100 + data[3];
+}
+
+/**
+ * Distance since codes cleared, in whole kilometres. Left unscaled like the odometer, so
+ * the reckoner remains the only place that knows what a count is worth.
+ */
+export function decodeDistanceKm(lines: string[]): number | null {
+  const data = decodeMode01(lines, PID_DISTANCE);
+  if (!data || data.length < 2) return null;
+  return data[0] * 0x100 + data[1];
 }
 
 /** The four bitmap bytes for a support block, or null if the car did not answer. */

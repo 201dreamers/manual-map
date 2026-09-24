@@ -51,6 +51,23 @@ export const CALIBRATION_MAX = 1.2;
 export const ODOMETER_UNIT_METERS = 100;
 
 /**
+ * Applies a calibration factor learned somewhere other than the counter - currently the
+ * GPS anchor. Kept here so every route into `k` passes the same bounds, and so a caller
+ * cannot set a factor the counter path would have refused.
+ *
+ * Out of range is rejected outright rather than clamped. Clamping suits a counter, whose
+ * errors are small and physical; a GPS window can be wrong by orders of magnitude, and
+ * clamping a ratio of 40 to 1.2 would quietly bake in a 20% error instead of discarding
+ * an obviously bad measurement.
+ */
+export function applyExternalCalibration(state: ReckoningState, k: number): ReckoningState {
+  if (!Number.isFinite(k) || k < CALIBRATION_MIN || k > CALIBRATION_MAX) {
+    return { ...state, calibrationRejected: true };
+  }
+  return { ...state, k, isCalibrated: true };
+}
+
+/**
  * Time constant for bleeding a correction into the cursor, in seconds. D-20: a
  * correction is eased in rather than applied at once, the same principle as the bearing
  * smoothing in `lerpBearing` and the zoom easing in `camera.ts`.
@@ -201,7 +218,16 @@ export function applySpeedSample(
  * first sample. If the odometer later stops answering, the speed integration carries on
  * already scale-corrected.
  */
-export function applyOdometerSample(state: ReckoningState, odoRaw: number): ReckoningState {
+export function applyOdometerSample(
+  state: ReckoningState,
+  odoRaw: number,
+  /**
+   * Metres per count. 100 for the odometer (01A6), 1000 for the distance counter
+   * (0131). Passed in rather than read from a constant so the same arithmetic serves
+   * both counters and there is still exactly one place that knows what a count means.
+   */
+  unitMeters: number = ODOMETER_UNIT_METERS,
+): ReckoningState {
   if (!Number.isFinite(odoRaw) || odoRaw < 0) return state;
 
   // The first reading is an origin, not a delta: how far the car had gone before it is
@@ -219,8 +245,7 @@ export function applyOdometerSample(state: ReckoningState, odoRaw: number): Reck
   // alternative is a negative correction that drags the cursor back down the route.
   if (odoRaw <= state.odoPrevRaw) return state;
 
-  const odoTotalMeters =
-    state.odoTotalMeters + (odoRaw - state.odoPrevRaw) * ODOMETER_UNIT_METERS;
+  const odoTotalMeters = state.odoTotalMeters + (odoRaw - state.odoPrevRaw) * unitMeters;
   const rawSinceStart = state.rawIntegratedMeters - state.rawAtOdoStart;
 
   let k = state.k;

@@ -9,6 +9,7 @@ import {
 import {
   bearingAtDistance,
   buildRouteGeometry,
+  projectOntoRoute,
   clampDistance,
   coordinateAtDistance,
   type RouteGeometry,
@@ -42,17 +43,28 @@ import {
 import { createElm327, type Elm327Client } from '../lib/obd/elm327';
 import {
   buildMode01Request,
+  decodeDistanceKm,
   decodeOdometerRaw,
   decodeSpeedKmh,
+  DISTANCE_UNIT_METERS,
+  PID_DISTANCE,
   PID_ODOMETER,
   PID_SPEED,
 } from '../lib/obd/pids';
+import { ODOMETER_UNIT_METERS } from '../lib/obd/reckoning';
+import type { CounterKind } from '../lib/obd/elm327';
 import {
+  applyExternalCalibration,
   applyOdometerSample,
   applySpeedSample,
   createReckoningState,
   type ReckoningState,
 } from '../lib/obd/reckoning';
+import {
+  applyGpsSample,
+  createGpsAnchorState,
+  type GpsAnchorState,
+} from '../lib/obd/gpsAnchor';
 import {
   createWebBluetoothTransport,
   isWebBluetoothAvailable,
@@ -533,6 +545,12 @@ let obdClient: Elm327Client | null = null;
 let reckoning: ReckoningState = createReckoningState();
 let obdPollTimer: ReturnType<typeof setInterval> | null = null;
 let obdPollCycle = 0;
+/**
+ * The absolute distance counter this session anchors to, chosen at connect. Held out
+ * here with the rest of the session state because it is read on every poll.
+ */
+let obdCounter: CounterKind = 'none';
+let gpsAnchor: GpsAnchorState = createGpsAnchorState();
 /** AC-614: the arrival toast fires once per arrival, not once per sample. */
 let routeEndAnnounced = false;
 
@@ -573,6 +591,61 @@ function resetPollDiagnostics(): void {
 }
 /** Held outside React: it is a subscription handle, not something anything renders. */
 let locationWatcher: LocationWatcher | null = null;
+
+/**
+ * Offers one fix to the calibration anchor.
+ *
+ * Only ever runs while the OBD link is live, because the anchor measures GPS *against*
+ * integrated wheel speed and has nothing to compare against without it. The fix is
+ * projected onto the route first: that converts a two-dimensional position into a
+ * distance along the road and discards lateral error in the process, since an error
+ * perpendicular to the direction of travel barely moves the along-route figure.
+ *
+ * Everything that decides whether the fix is believed lives in `gpsAnchor`, pure and
+ * tested. This function only gathers the inputs and applies the outcome.
+ */
+function feedGpsAnchor(location: UserLocation): void {
+  const state = useSimulationStore.getState();
+  if (state.obd.status !== 'connected') return;
+  const geometry = state.geometry;
+  if (!geometry) return;
+
+  const projected = projectOntoRoute(geometry.line, location.coordinate);
+  if (!projected) return;
+
+  const outcome = applyGpsSample(
+    gpsAnchor,
+    {
+      routeDistanceMeters: projected.distanceMeters,
+      offRouteMeters: metersBetween(location.coordinate, projected.coordinate),
+      accuracyMeters: location.accuracyMeters,
+      timestampMs: nowMs(),
+      reckonedMeters: reckoning.rawIntegratedMeters,
+    },
+    reckoning.k,
+  );
+  gpsAnchor = outcome.state;
+
+  if (outcome.calibration === null) return;
+
+  const previous = reckoning;
+  reckoning = applyExternalCalibration(previous, outcome.calibration);
+  if (reckoning.k === previous.k) return;
+
+  // Persisted like the counter-derived factor: it describes the car, not the trip.
+  settingsRepository.update({ obdCalibration: reckoning.k });
+  useSimulationStore.setState({
+    obd: {
+      ...useSimulationStore.getState().obd,
+      calibration: reckoning.k,
+      isCalibrated: reckoning.isCalibrated,
+    },
+  });
+  console.info(
+    `[obd] GPS calibration committed: k=${reckoning.k.toFixed(4)} ` +
+      `after ${gpsAnchor.acceptedWindows} windows, ${gpsAnchor.rejectedFixes} fixes rejected`,
+  );
+}
 
 export const useSimulationStore = create<SimulationState>()(
   subscribeWithSelector((set, get) => {
@@ -1430,6 +1503,7 @@ export const useSimulationStore = create<SimulationState>()(
                 focusRequest: { id: get().focusRequest.id + 1, coordinate: location.coordinate },
               });
             }
+            feedGpsAnchor(location);
           },
           onError: (message) => {
             locationWatcher?.stop();
@@ -1462,12 +1536,15 @@ export const useSimulationStore = create<SimulationState>()(
               `[obd] adapter: ${init.identity ?? '(no identity reported)'}`,
               `[obd] bus answered 0100: ${init.respondedToSupportProbe}`,
               `[obd] odometer: ${init.odometerSupported} (decided by ${init.odometerSource})`,
+              `[obd] distance counter: ${init.counter} (found by ${init.counterSource})`,
             ].join('\n'),
           );
 
           obdTransport = transport;
           obdClient = client;
           obdPollCycle = 0;
+          obdCounter = init.counter;
+          gpsAnchor = createGpsAnchorState();
           routeEndAnnounced = false;
           resetPollDiagnostics();
           // D-23: the stored calibration describes this car, so a session starts already
@@ -1546,9 +1623,14 @@ export const useSimulationStore = create<SimulationState>()(
           if (speed !== null) get().applyObdSpeed(speed, nowMs());
 
           obdPollCycle += 1;
-          if (get().obd.odometerSupported && obdPollCycle % OBD_ODOMETER_EVERY_NTH === 0) {
-            const odometer = decodeOdometerRaw(await client.send(buildMode01Request(PID_ODOMETER)));
-            if (odometer !== null) get().applyObdOdometer(odometer);
+          if (obdCounter !== 'none' && obdPollCycle % OBD_ODOMETER_EVERY_NTH === 0) {
+            // Whichever counter this car turned out to have. The reckoner takes the unit
+            // alongside the count, so the two PIDs share one anchoring path.
+            const pid = obdCounter === 'odometer' ? PID_ODOMETER : PID_DISTANCE;
+            const reply = await client.send(buildMode01Request(pid));
+            const count =
+              obdCounter === 'odometer' ? decodeOdometerRaw(reply) : decodeDistanceKm(reply);
+            if (count !== null) get().applyObdOdometer(count);
           }
         } catch (error) {
           // A dropped reply is routine on a clone adapter. The gap guard in the
@@ -1594,7 +1676,11 @@ export const useSimulationStore = create<SimulationState>()(
 
       applyObdOdometer: (odometerRaw) => {
         const previous = reckoning;
-        reckoning = applyOdometerSample(previous, odometerRaw);
+        reckoning = applyOdometerSample(
+          previous,
+          odometerRaw,
+          obdCounter === 'distance' ? DISTANCE_UNIT_METERS : ODOMETER_UNIT_METERS,
+        );
         if (reckoning.k === previous.k && reckoning.isCalibrated === previous.isCalibrated) return;
 
         // D-23: the only thing about a drive worth keeping, because it describes the car.
