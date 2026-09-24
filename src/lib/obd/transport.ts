@@ -41,6 +41,18 @@ export interface ObdTransport {
  * D-16: the actual service and characteristic are discovered at runtime rather than
  * hardcoded, because the same product code ships with different firmware.
  */
+/**
+ * The allowlist, and the single biggest constraint in this file.
+ *
+ * Web Bluetooth will only ever hand back services named here: `getPrimaryServices()`
+ * silently returns an empty array for anything omitted, with no way to enumerate what
+ * the device actually offers. A native app has no such restriction, which is why an
+ * adapter that works in a native OBD app can still look unsupported here. If an adapter
+ * is rejected, the first suspect is this list, not the adapter.
+ *
+ * Nordic UART is included because a large share of ELM327 clones expose their serial
+ * bridge through it rather than through one of the 16-bit vendor ranges.
+ */
 export const OBD_SERVICE_UUIDS: string[] = [
   '0000ffe0-0000-1000-8000-00805f9b34fb',
   '0000fff0-0000-1000-8000-00805f9b34fb',
@@ -49,6 +61,11 @@ export const OBD_SERVICE_UUIDS: string[] = [
   '000018f0-0000-1000-8000-00805f9b34fb',
   '0000abf0-0000-1000-8000-00805f9b34fb',
   '0000ffff-0000-1000-8000-00805f9b34fb',
+  '0000fff1-0000-1000-8000-00805f9b34fb',
+  '0000ffb0-0000-1000-8000-00805f9b34fb',
+  '0000fd5a-0000-1000-8000-00805f9b34fb',
+  // Nordic UART Service, common in BLE serial bridges.
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
 ];
 
 /* --- Minimal Web Bluetooth surface. Declared here rather than pulled from an @types
@@ -107,14 +124,72 @@ function getBluetooth(): BluetoothLike {
  * ELM327 exposes a single such pipe and it behaves like a serial port. Searching for
  * the capability rather than a known UUID is what lets this work across clones.
  */
-function findSerialCharacteristic(
+/**
+ * Prints what the adapter actually exposed. Console only: the on-screen message stays
+ * the plain sentence a driver can act on, while the UUIDs a fix needs go somewhere they
+ * can be copied out of. Zero services printed here means the allowlist missed, not that
+ * the adapter is unsupported - the two look identical from the interface.
+ */
+async function logDiscovery(
+  device: BluetoothDeviceLike,
+  services: GattServiceLike[],
+): Promise<void> {
+  try {
+    const lines = [`[obd] device: ${device.name ?? '(unnamed)'}`];
+    if (services.length === 0) {
+      lines.push(
+        '[obd] no services visible. Web Bluetooth only returns services listed in',
+        '[obd] OBD_SERVICE_UUIDS, so this adapter almost certainly uses one that is not',
+        '[obd] in that list. Read its real UUIDs with a native scanner (nRF Connect).',
+      );
+    }
+    for (const service of services) {
+      lines.push(`[obd] service ${service.uuid}`);
+      for (const characteristic of await service.getCharacteristics()) {
+        const { notify, write, writeWithoutResponse } = characteristic.properties;
+        lines.push(
+          `[obd]   char ${characteristic.uuid} ` +
+            `notify=${notify} write=${write} writeNoResponse=${writeWithoutResponse}`,
+        );
+      }
+    }
+    console.info(lines.join('\n'));
+  } catch {
+    // Diagnostics must never be the reason a connection fails.
+  }
+}
+
+/** The two ends of the serial bridge. They are often, but not always, one characteristic. */
+export interface SerialChannel {
+  notify: GattCharacteristicLike;
+  write: GattCharacteristicLike;
+}
+
+const canWrite = (c: GattCharacteristicLike) =>
+  c.properties.write || c.properties.writeWithoutResponse;
+
+/**
+ * Finds the read and write ends of the serial bridge.
+ *
+ * The first version of this demanded a single characteristic carrying both `notify` and
+ * a write property, which is the minority arrangement. Nordic UART - and the 16-bit
+ * vendor services that most ELM327 clones copy - split the two: one characteristic
+ * notifies, a sibling accepts writes, and neither has both. An adapter built that way
+ * was rejected as having "no readable data channel" while working perfectly elsewhere.
+ *
+ * A combined characteristic still wins when one exists, because an adapter offering it
+ * means it, and pairing across it could otherwise pick a control characteristic by
+ * mistake.
+ */
+export function findSerialChannel(
   characteristics: GattCharacteristicLike[],
-): GattCharacteristicLike | null {
-  return (
-    characteristics.find(
-      (c) => c.properties.notify && (c.properties.write || c.properties.writeWithoutResponse),
-    ) ?? null
-  );
+): SerialChannel | null {
+  const combined = characteristics.find((c) => c.properties.notify && canWrite(c));
+  if (combined) return { notify: combined, write: combined };
+
+  const notify = characteristics.find((c) => c.properties.notify);
+  const write = characteristics.find(canWrite);
+  return notify && write ? { notify, write } : null;
 }
 
 export function createWebBluetoothTransport(): ObdTransport {
@@ -124,12 +199,12 @@ export function createWebBluetoothTransport(): ObdTransport {
   const disconnectHandlers = new Set<() => void>();
 
   let device: BluetoothDeviceLike | null = null;
-  let characteristic: GattCharacteristicLike | null = null;
+  let channel: SerialChannel | null = null;
   let state: TransportState = 'disconnected';
 
   const handleDisconnect = () => {
     state = 'disconnected';
-    characteristic = null;
+    channel = null;
     disconnectHandlers.forEach((handler) => handler());
   };
 
@@ -152,20 +227,37 @@ export function createWebBluetoothTransport(): ObdTransport {
         if (!server) throw new ObdError('The adapter did not accept the connection.');
 
         const services = await server.getPrimaryServices();
+        // Diagnostics go to the console only, never on screen (D-80). Without this an
+        // allowlist miss and a genuinely unsupported adapter are indistinguishable to
+        // anyone trying to report the problem.
+        logDiscovery(device, services);
+
+        // Per service first, so the two ends come from the same bridge. Only if no one
+        // service carries both does it fall back to pairing across all of them, which
+        // covers adapters that split the bridge over sibling services.
+        const everyCharacteristic: GattCharacteristicLike[] = [];
         for (const service of services) {
-          const found = findSerialCharacteristic(await service.getCharacteristics());
+          const characteristics = await service.getCharacteristics();
+          everyCharacteristic.push(...characteristics);
+          const found = findSerialChannel(characteristics);
           if (found) {
-            characteristic = found;
+            channel = found;
             break;
           }
         }
-        if (!characteristic) {
-          throw new ObdError('This does not look like a supported OBD adapter.');
+        if (!channel) channel = findSerialChannel(everyCharacteristic);
+
+        if (!channel) {
+          throw new ObdError(
+            services.length === 0
+              ? 'This adapter uses a Bluetooth service the app does not know about yet.'
+              : 'This adapter exposes no readable data channel.',
+          );
         }
 
-        await characteristic.startNotifications();
-        characteristic.addEventListener('characteristicvaluechanged', () => {
-          const value = characteristic?.value;
+        await channel.notify.startNotifications();
+        channel.notify.addEventListener('characteristicvaluechanged', () => {
+          const value = channel?.notify.value;
           if (!value) return;
           const chunk = decoder.decode(value);
           dataHandlers.forEach((handler) => handler(chunk));
@@ -179,13 +271,16 @@ export function createWebBluetoothTransport(): ObdTransport {
     },
 
     async write(command: string) {
-      if (!characteristic) throw new ObdError('Not connected.');
+      if (!channel) throw new ObdError('Not connected.');
       // The ELM327 terminates every command with a carriage return, not a newline.
       const payload = encoder.encode(`${command}\r`);
-      if (characteristic.writeValueWithoutResponse) {
-        await characteristic.writeValueWithoutResponse(payload);
+      const target = channel.write;
+      // Without-response is preferred where the characteristic actually supports it:
+      // a bridge that only advertises `write` will reject the other call outright.
+      if (target.properties.writeWithoutResponse && target.writeValueWithoutResponse) {
+        await target.writeValueWithoutResponse(payload);
       } else {
-        await characteristic.writeValue(payload);
+        await target.writeValue(payload);
       }
     },
 
@@ -202,7 +297,7 @@ export function createWebBluetoothTransport(): ObdTransport {
     async disconnect() {
       device?.removeEventListener('gattserverdisconnected', handleDisconnect);
       device?.gatt?.disconnect();
-      characteristic = null;
+      channel = null;
       device = null;
       state = 'disconnected';
     },

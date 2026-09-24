@@ -1123,3 +1123,43 @@ renders the build stamp, so any suite rendering that panel failed on a bare
 * AC-774: the key field is rendered in Settings whether or not a key is present.
 
 Verify: `tests/traffic.test.ts` (111), `tests/cameras.test.ts` (84).
+
+## 51. OBD Adapter Discovery (field findings)
+
+Measured against a Konnwei KW906 on an iPhone, 2026-09-24.
+
+* **D-90. The service allowlist is the first suspect, not the adapter.** Web Bluetooth
+  returns only services named in `optionalServices` and offers no way to enumerate what
+  a device actually has, so an unlisted service is indistinguishable from an adapter
+  with no services at all. A native app has no allowlist, which is why the same KW906
+  worked in MaxOBD while this app rejected it. Nordic UART and several vendor ranges
+  were added; the original seven UUIDs were guesses that were never field-checked.
+* **D-91. The serial bridge is two characteristics, not one.** `findSerialCharacteristic`
+  required a single characteristic carrying both `notify` and a write property. That is
+  the minority arrangement: Nordic UART splits them (`6e400002` writes, `6e400003`
+  notifies) and the 16-bit vendor services most ELM327 clones copy do the same. The
+  KW906 was rejected as having "no readable data channel" for exactly this reason.
+  `findSerialChannel` now returns a read end and a write end, preferring a combined
+  characteristic where one exists so a control characteristic is not paired by mistake.
+* **D-92. Write-without-response is used only where advertised.** Previously it was used
+  whenever the method existed, which it does on every characteristic; a bridge
+  advertising only `write` would reject the call.
+* **D-93. Discovery is logged to the console, never to the screen.** D-80 keeps
+  implementation detail out of the interface, but that left an allowlist miss and a real
+  incompatibility looking identical to anyone reporting a problem. The device name, each
+  visible service and every characteristic with its properties now print to the console,
+  and the two failures carry different on-screen sentences.
+
+### Acceptance Criteria
+
+* AC-780: a Nordic UART layout, and a split 16-bit vendor layout, are both accepted with
+  the right end assigned to each direction.
+* AC-781: a combined notify-and-write characteristic is preferred over pairing.
+* AC-782: notify alone, write alone, read-only, and an empty service are all rejected.
+
+Verify: `tests/obd-protocol.test.ts` (45).
+
+### Still unverified
+
+Whether the KW906 then answers `ATZ` and the mode 01 PIDs. Discovery is only the first
+gate; the ELM327 conversation past it has never run against real hardware.

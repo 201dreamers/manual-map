@@ -228,4 +228,52 @@ import {
   check('request builder pads single-digit PIDs', buildMode01Request(0x05) === '01051');
 }
 
+/* ---------------- the serial channel: read and write ends ---------------- */
+
+{
+  const { findSerialChannel } = await import('../src/lib/obd/transport');
+  const make = (uuid: string, notify: boolean, write: boolean, writeNo: boolean) =>
+    ({ uuid, properties: { notify, write, writeWithoutResponse: writeNo } }) as never;
+
+  // Nordic UART, and the shape that was being rejected: neither end has both.
+  const nus = [
+    make('6e400002-b5a3-f393-e0a9-e50e24dcca9e', false, true, true),
+    make('6e400003-b5a3-f393-e0a9-e50e24dcca9e', true, false, false),
+  ];
+  const nusChannel = findSerialChannel(nus);
+  check('AC-780 Nordic UART is accepted, split across two characteristics',
+    nusChannel !== null);
+  check('AC-780 notify comes from the TX characteristic',
+    nusChannel?.notify.uuid.startsWith('6e400003') === true, nusChannel?.notify.uuid);
+  check('AC-780 and write from the RX characteristic',
+    nusChannel?.write.uuid.startsWith('6e400002') === true, nusChannel?.write.uuid);
+
+  // The same split in the 16-bit vendor range most ELM327 clones copy.
+  const vendor = [
+    make('0000fff1-0000-1000-8000-00805f9b34fb', true, false, false),
+    make('0000fff2-0000-1000-8000-00805f9b34fb', false, false, true),
+  ];
+  check('AC-780 a split 16-bit vendor service is accepted', findSerialChannel(vendor) !== null);
+
+  // A combined characteristic still wins, so a control characteristic is not paired by
+  // mistake when the adapter offers a proper bridge.
+  const combined = [
+    make('0000ffe2-0000-1000-8000-00805f9b34fb', true, false, false),
+    make('0000ffe1-0000-1000-8000-00805f9b34fb', true, true, false),
+  ];
+  const combinedChannel = findSerialChannel(combined);
+  check('AC-781 a combined characteristic is preferred',
+    combinedChannel?.notify.uuid === combinedChannel?.write.uuid &&
+      combinedChannel?.write.uuid.startsWith('0000ffe1') === true,
+    combinedChannel?.write.uuid);
+
+  check('AC-782 notify with no writable sibling is rejected',
+    findSerialChannel([make('0000fff1-0000-1000-8000-00805f9b34fb', true, false, false)]) === null);
+  check('AC-782 a writable characteristic with no notify is rejected',
+    findSerialChannel([make('0000fff2-0000-1000-8000-00805f9b34fb', false, true, false)]) === null);
+  check('AC-782 an empty service is rejected', findSerialChannel([]) === null);
+  check('AC-782 read-only characteristics are rejected',
+    findSerialChannel([make('0000fff3-0000-1000-8000-00805f9b34fb', false, false, false)]) === null);
+}
+
 report('obd-protocol');
