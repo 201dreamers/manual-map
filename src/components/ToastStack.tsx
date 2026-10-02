@@ -6,24 +6,31 @@ import type { ToastKind } from '../types/domain';
 /*
   These sit over a live map, which can be anything from a white motorway to a dark park,
   so a 15% tint was legible against some tiles and invisible against others - an error is
-  the one message that must never be missed. Each kind is now an opaque fill with white
-  text and a drop shadow to lift it off the map, rather than a wash that borrows the
-  map's own colour. Error carries the strongest fill of the three.
+  the one message that must never be missed.
+
+  The fill is now frosted rather than flat: a blurred, saturated backdrop under a dark
+  tint, with a hairline top highlight so it reads as a pane of glass sitting above the
+  map instead of a sticker pasted onto it. Legibility is preserved by keeping the tint
+  dark and mostly opaque - the map shows through as texture, never as colour. At 80% over
+  the worst case, a white tile, the error fill still holds about 6:1 against its text.
 */
+const GLASS =
+  'backdrop-blur-xl backdrop-saturate-150 ' +
+  '[box-shadow:inset_0_1px_0_rgb(255_255_255/0.14),0_12px_32px_-12px_rgb(2_6_23/0.7)]';
+
 const STYLES: Record<ToastKind, { className: string; Icon: typeof Info }> = {
+  // Rose rather than red: the alarm is carried by the icon and the wording, and a
+  // saturated red over a moving map reads as an emergency the app cannot actually have.
   error: {
-    className:
-      'bg-red-600 text-white ring-red-300/70 [box-shadow:0_10px_30px_-8px_rgb(2_6_23/0.85)]',
+    className: `bg-rose-900/80 text-rose-50 ring-rose-200/25 ${GLASS}`,
     Icon: AlertCircle,
   },
   info: {
-    className:
-      'bg-slate-800 text-slate-100 ring-slate-500/70 [box-shadow:0_10px_30px_-10px_rgb(2_6_23/0.8)]',
+    className: `bg-slate-900/75 text-slate-100 ring-white/15 ${GLASS}`,
     Icon: Info,
   },
   success: {
-    className:
-      'bg-emerald-600 text-white ring-emerald-300/70 [box-shadow:0_10px_30px_-10px_rgb(2_6_23/0.8)]',
+    className: `bg-emerald-900/80 text-emerald-50 ring-emerald-200/25 ${GLASS}`,
     Icon: CheckCircle2,
   },
 };
@@ -46,7 +53,7 @@ export function ToastStack() {
           <div
             key={toast.id}
             role={toast.kind === 'error' ? 'alert' : 'status'}
-            className={`pointer-events-auto flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 ${className}`}
+            className={`pointer-events-auto flex items-start gap-2.5 rounded-2xl px-3 py-2.5 text-sm font-medium ring-1 ${className}`}
           >
             <Icon size={20} className="mt-px shrink-0" />
             <p className="flex-1 leading-snug">{toast.text}</p>

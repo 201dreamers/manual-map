@@ -634,9 +634,17 @@ check(
     markup.lastIndexOf('<div', markup.indexOf('Could not reach the adapter.')),
     markup.indexOf('Could not reach the adapter.'),
   );
-  check('AC-755 the error toast is an opaque fill, not a tint over the map',
-    errorTag.includes('bg-red-600') && !errorTag.includes('bg-red-500/15'), errorTag.slice(0, 120));
-  check('AC-755 with white text rather than a mid red', errorTag.includes('text-white'));
+  // AC-755 [revised]: the fill is frosted rather than flat, so "opaque" is no longer the
+  // right test. What has to hold is that the tint stays dark and mostly opaque - a light
+  // or low-opacity fill is the failure that started this, because it borrows whatever
+  // colour the map tile underneath happens to be.
+  const fill = /bg-(\w+)-(\d{3})\/(\d{2})/.exec(errorTag);
+  check('AC-755 the error fill is dark and mostly opaque, not a tint over the map',
+    fill !== null && Number(fill[2]) >= 800 && Number(fill[3]) >= 75, errorTag.slice(0, 120));
+  check('AC-755 the map reads as texture through it, not as colour',
+    errorTag.includes('backdrop-blur'), errorTag.slice(0, 120));
+  check('AC-755 with light text rather than a mid red',
+    errorTag.includes('text-rose-50'), errorTag.slice(0, 120));
   check('AC-755 and a shadow to lift it off the map', errorTag.includes('box-shadow'));
   check('AC-755 an error is announced, not merely stated',
     errorTag.includes('role="alert"'), errorTag.slice(0, 80));
