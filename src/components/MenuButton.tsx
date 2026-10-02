@@ -8,6 +8,7 @@ import {
   Pencil,
   RefreshCw,
   Settings,
+  Stethoscope,
   Undo2,
 } from 'lucide-react';
 import { useSimulationStore } from '../store/simulationStore';
@@ -48,6 +49,8 @@ export function MenuButton() {
   const hasRoute = useSimulationStore((state) => state.geometry !== null);
   const connectObd = useSimulationStore((state) => state.connectObd);
   const disconnectObd = useSimulationStore((state) => state.disconnectObd);
+  const runObdProbes = useSimulationStore((state) => state.runObdProbes);
+  const pushToast = useSimulationStore((state) => state.pushToast);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -119,6 +122,28 @@ export function MenuButton() {
                 : obdStatus === 'connecting'
                   ? 'Connecting...'
                   : 'Connect OBD'}
+            </button>
+          )}
+          {/*
+            Only while connected, because it has nothing to ask otherwise.
+
+            It repeats the sweep that already ran at connect, which is worth a menu item
+            because the answers are not constant: several distance PIDs read zero or
+            refuse outright on a stationary car and only become informative once it is
+            moving. Diagnosing this needs a driver, a laptop and a road, so the one
+            thing the app can do is make the question cheap to re-ask.
+          */}
+          {obdStatus === 'connected' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={ITEM_CLASS}
+              onClick={run(() => {
+                void runObdProbes();
+                pushToast('info', 'Probing the car. Results are in the browser console.');
+              })}
+            >
+              <Stethoscope size={18} /> Run OBD probes
             </button>
           )}
           {/*

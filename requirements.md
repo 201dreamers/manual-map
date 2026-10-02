@@ -1319,3 +1319,107 @@ Verify: `tests/gps-anchor.test.ts` (25), `tests/obd-protocol.test.ts` (79),
 Whether this car answers `0131` at all - the console now reports the chosen counter at
 connect - and whether the GPS gates behave against real jamming rather than synthetic
 fixtures. Both need a drive.
+
+## 59. Field fix: the cursor advanced twice per second of driving
+
+Measured on a real drive: the speed readout matched the car, but the marker ran down the
+route at roughly twice the car's pace. Reproduced headlessly at 2.13x.
+
+* **D-109. Exactly one source moves the cursor.** Two independent integrators were both
+  advancing it. `applyObdSpeed` integrates the measured speed over the interval it was
+  actually measured across, at the adapter's poll rate. The animation loop separately
+  integrated `config.speedKmh` over wall-clock frame deltas - and `config.speedKmh` is
+  written from the same measurement, so the same second of driving was counted twice.
+  The dial stayed correct throughout, because only distance was doubled, which is why
+  the fault looked like a display problem rather than an arithmetic one.
+  `advance()` now returns early while the adapter is connected.
+
+  The adapter, not the animation loop, is the right source to keep: it integrates over
+  the measured interval, the trapezoid and the `DT_MAX_SECONDS` stall guard live on that
+  path, and calibration only scales that path. A stalled adapter now freezes the marker
+  rather than letting the loop invent road at the last known speed, which is the
+  behaviour D-19 already asks for.
+
+* AC-619: with an adapter connected, OBD samples interleaved with animation frames
+  advance the cursor by the measured distance once, not twice; with no adapter attached
+  the animation loop still drives it.
+
+Verify: `tests/obd-store.test.ts` (48).
+
+## 60. Field instrumentation: asking the car what it actually supports
+
+A drive costs a driver, a road and an hour, so the sweep asks everything worth asking in
+one pass rather than one question per drive.
+
+* **D-110. Probe every support block and every candidate PID unconditionally.** The
+  standard says to walk the blocks, asking `0120` only if `0100` says it exists. The
+  sweep ignores that and asks all seven, because an unsupported block answers `NO DATA`
+  in well under a second and cars have been measured answering PIDs they never
+  advertise. Seven commands once per connection is not worth a missed finding.
+* **D-111. Print the raw reply beside every decode.** Once decoded, a wrong decode and
+  an unanswered PID are both `null`. Only the raw text separates them, and that text is
+  the one thing reading the code cannot supply.
+* **D-112. The sweep never throws and never mutates.** Every probe is wrapped, the whole
+  run is wrapped again, and a structural failure reports a partial result rather than
+  rejecting. It touches no reckoning, calibration or store state. A diagnostic that can
+  end the session it is diagnosing is worse than none.
+* **D-113. No mode 09.** The useful PID there is the VIN, which identifies the vehicle
+  and so its owner, and a sweep is written to be pasted into a chat window.
+* **D-114. The sweep runs unawaited at connect, and again on demand.** Around twenty
+  round trips would leave the connect button spinning; the serial command queue makes
+  interleaving with the poll cycle safe. The menu item exists because several distance
+  PIDs only become informative once the car is moving.
+
+* AC-840: a sweep against a transport that throws, rejects or returns garbage completes
+  without throwing, asks every probe rather than stopping at the first failure, resolves
+  with a summary, and lets no thrown message reach the log.
+* AC-841: advertised, answering and silent PIDs are reported separately, so a PID the
+  car answers without advertising is called out by name.
+* AC-842: no mode 09 request is issued.
+
+Verify: `tests/obd-diagnostics.test.ts` (29), `tests/obd-store.test.ts` (48).
+
+## 61. What the first instrumented drive measured
+
+Konnwei KW906, ISO 15765-4 (CAN 11/500), 840 polls at 4 Hz with `failed=0`. The sweep
+worked and settled two open questions and exposed two bugs.
+
+Settled:
+
+* **The car has no odometer.** `01A6` is not advertised in block A0, block A0 does not
+  answer at all, and a direct probe returns `NO DATA`. Measured three ways. Stop asking.
+* **`0131` works and is the counter in use**, advertised in block 20 and answering
+  `41 31 01 0F` (271 km). It ticked to 272 during the drive.
+* **The poll backlog hypothesis is disproved.** 840 polls, zero timeouts. The six
+  `undecodable` replies all occurred during the sweep and the count stayed flat after.
+  `OBD_POLL_INTERVAL_MS` does not need raising.
+
+Bugs the data exposed:
+
+* **D-115. The calibration baseline must scale with the counter's unit.**
+  `CALIBRATION_MIN_METERS` was a flat 2 km, reasoned for the 100 m odometer where one
+  count is 5% of the baseline. On the 1 km counter this car actually has, one count is
+  50% of it, so the first factor derived would have been noise - and `k` persists to
+  every later drive. `calibrationMinMeters(unitMeters)` now demands
+  `QUANTIZATION_BASELINE_STEPS` (20) counts: 2 km for `01A6`, 20 km for `0131`. A long
+  drive, correctly, because that is how far a 1 km counter must run to mean anything.
+* **D-116. The counter origin is the first increment, not the first reading.** A counter
+  read at rest sits an unknown fraction f of a count past its last tick, so it ticks
+  after (1 - f) counts. Treating that tick as a whole count of travel overstates
+  distance by f counts - a constant error, injected once, never washed out, up to a full
+  kilometre on `0131`. Measured: the counter ticked at 940 m integrated and the anchor
+  announced a 60 m correction with no basis. Timing the origin from a tick makes every
+  later distance an exact multiple of the unit.
+
+* AC-843: `calibrationMinMeters` returns 2 km for a 100 m counter and 20 km for a 1 km
+  counter, and a 1 km counter does not calibrate off a 2 km stretch.
+* AC-844: the first tick pins the origin and invents no correction; counts after it are
+  exact multiples of the unit.
+
+Verify: `tests/reckoning.test.ts` (37), `tests/obd-protocol.test.ts` (80).
+
+## 62. Still unmeasured after that drive
+
+`k` never left 1.0 (`assumed`), because the drive integrated 1.1 km against a baseline
+that is now 20 km. Location was off for the whole drive - `gps windows=0 rejected=0 last=no fix yet` -
+so the anchor contributed nothing and its gates remain tested only against fixtures.

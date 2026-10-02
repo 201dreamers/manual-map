@@ -51,6 +51,7 @@ import {
   PID_ODOMETER,
   PID_SPEED,
 } from '../lib/obd/pids';
+import { runObdDiagnostics } from '../lib/obd/diagnostics';
 import { ODOMETER_UNIT_METERS } from '../lib/obd/reckoning';
 import type { CounterKind } from '../lib/obd/elm327';
 import {
@@ -412,6 +413,18 @@ export interface SimulationState {
   disconnectObd: () => Promise<void>;
   /** One round of the poll cycle. Exposed so tests drive it instead of a timer. */
   pollObdOnce: () => Promise<void>;
+  /**
+   * Asks the car everything worth asking about distance and prints it. Runs once at
+   * connect and again on demand, because the answers change with engine state: a PID
+   * that reads zero on a parked car is only informative once it has been read moving.
+   */
+  runObdProbes: () => Promise<void>;
+  /**
+   * Resolves once the connect-time sweep has finished. It is started unawaited so the
+   * connect button does not hang on it, which leaves a test no way to tell the sweep's
+   * commands from the poll cycle's. This is that way.
+   */
+  obdProbesSettled: () => Promise<void>;
   applyObdSpeed: (speedKmh: number, timestampMs: number) => void;
   applyObdOdometer: (odometerRaw: number) => void;
 
@@ -550,6 +563,8 @@ let obdPollCycle = 0;
  * here with the rest of the session state because it is read on every poll.
  */
 let obdCounter: CounterKind = 'none';
+/** The connect-time sweep, kept so `obdProbesSettled` can be awaited. */
+let obdProbeRun: Promise<void> = Promise.resolve();
 let gpsAnchor: GpsAnchorState = createGpsAnchorState();
 /** AC-614: the arrival toast fires once per arrival, not once per sample. */
 let routeEndAnnounced = false;
@@ -577,9 +592,49 @@ function reportPoll(outcome: 'ok' | 'undecodable' | 'failed', lines: string[]): 
   if (pollReports % POLL_TALLY_EVERY === 0) {
     console.info(
       `[obd] polls ${pollReports}: ok=${pollTally.ok} ` +
-        `undecodable=${pollTally.undecodable} failed=${pollTally.failed}`,
+        `undecodable=${pollTally.undecodable} failed=${pollTally.failed} | ` +
+        `reckoned=${reckoning.distanceMeters.toFixed(0)} m ` +
+        `raw=${reckoning.rawIntegratedMeters.toFixed(0)} m ` +
+        `k=${reckoning.k.toFixed(4)}${reckoning.isCalibrated ? '' : ' (assumed)'} ` +
+        `residual=${reckoning.residualMeters.toFixed(1)} m ` +
+        `degraded=${reckoning.degraded} | ` +
+        `counter=${obdCounter} odo=${lastCounterCount ?? '-'} | ` +
+        `gps windows=${gpsAnchor.acceptedWindows} rejected=${gpsAnchor.rejectedFixes} ` +
+        `last=${gpsAnchor.lastVerdict ?? 'no fix yet'}`,
     );
   }
+}
+
+/**
+ * Last absolute counter reading seen, so a reading that has not moved can be logged as
+ * silence rather than repeated. A counter that never advances is the failure this whole
+ * sweep is looking for, and it is only visible as an absence.
+ */
+let lastCounterCount: number | null = null;
+
+/**
+ * Prints a counter reply only when the count actually changes.
+ *
+ * At one reading a second an unfiltered log buries the drive in identical lines, and the
+ * useful events are the transitions: the first reading, every increment, and a decrease,
+ * which means a rollover or a codes-clear and is refused by the reckoner.
+ */
+function reportCounter(pid: number, lines: string[], count: number | null): void {
+  const label = `01${pid.toString(16).toUpperCase().padStart(2, '0')}`;
+  if (count === null) {
+    console.info(`[obd] counter ${label}: undecodable ${JSON.stringify(lines)}`);
+    return;
+  }
+  if (lastCounterCount === null) {
+    console.info(`[obd] counter ${label}: first reading ${count}`);
+  } else if (count !== lastCounterCount) {
+    const step = count - lastCounterCount;
+    console.info(
+      `[obd] counter ${label}: ${lastCounterCount} -> ${count} (${step > 0 ? '+' : ''}${step})` +
+        (step < 0 ? ' - went backwards, the reckoner will refuse it' : ''),
+    );
+  }
+  lastCounterCount = count;
 }
 
 /** Reset per session, so a reconnect prints fresh samples rather than staying quiet. */
@@ -588,6 +643,7 @@ function resetPollDiagnostics(): void {
   pollTally.ok = 0;
   pollTally.undecodable = 0;
   pollTally.failed = 0;
+  lastCounterCount = null;
 }
 /** Held outside React: it is a subscription handle, not something anything renders. */
 let locationWatcher: LocationWatcher | null = null;
@@ -1580,6 +1636,15 @@ export const useSimulationStore = create<SimulationState>()(
           }
 
           obdPollTimer = setInterval(() => void get().pollObdOnce(), OBD_POLL_INTERVAL_MS);
+
+          /*
+            Unawaited on purpose. The sweep is around twenty round trips, which on a
+            clone adapter is long enough that awaiting it would leave the connect button
+            spinning for most of a minute. The command queue is strictly serial, so the
+            sweep and the speed polls interleave safely rather than racing; the only
+            cost is that the first few seconds of polling run at a lower rate.
+          */
+          obdProbeRun = get().runObdProbes();
         } catch (error) {
           // Gated on type, not on truthiness: a DOMException from the Bluetooth stack
           // and a TypeError from a bug are both `Error`, and both carry code detail.
@@ -1610,6 +1675,23 @@ export const useSimulationStore = create<SimulationState>()(
         await transport?.disconnect();
       },
 
+      obdProbesSettled: () => obdProbeRun,
+
+      runObdProbes: async () => {
+        const client = obdClient;
+        if (!client) {
+          console.info('[obd] no adapter connected, nothing to probe');
+          return;
+        }
+        // `runObdDiagnostics` already swallows everything it can; this guard covers the
+        // case of the client itself disappearing between the check above and the call.
+        try {
+          await runObdDiagnostics((command, timeoutMs) => client.send(command, timeoutMs));
+        } catch {
+          console.info('[obd] diagnostic sweep could not run');
+        }
+      },
+
       pollObdOnce: async () => {
         const client = obdClient;
         if (!client || get().obd.status !== 'connected') return;
@@ -1630,6 +1712,7 @@ export const useSimulationStore = create<SimulationState>()(
             const reply = await client.send(buildMode01Request(pid));
             const count =
               obdCounter === 'odometer' ? decodeOdometerRaw(reply) : decodeDistanceKm(reply);
+            reportCounter(pid, reply, count);
             if (count !== null) get().applyObdOdometer(count);
           }
         } catch (error) {
@@ -1814,8 +1897,15 @@ export const useSimulationStore = create<SimulationState>()(
       },
 
       advance: (deltaSeconds) => {
-        const { geometry, config, telemetry } = get();
+        const { geometry, config, telemetry, obd } = get();
         if (!geometry || !config.isPlaying) return;
+
+        // Exactly one source may move the cursor. With an adapter connected the car
+        // does, through `applyObdSpeed`, which integrates the measured speed over the
+        // interval it was actually measured across. Integrating `config.speedKmh` here
+        // as well would advance the same second of driving twice: the dial would read
+        // correctly while the marker ran at double the real speed.
+        if (obd.status === 'connected') return;
 
         const distanceDelta = (config.speedKmh / 3.6) * deltaSeconds;
         applyDistance(telemetry.currentDistanceMeters + distanceDelta, { pauseAtEnd: true });

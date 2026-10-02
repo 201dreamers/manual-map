@@ -1,4 +1,5 @@
 import { check, report } from './harness';
+import { DISTANCE_UNIT_METERS } from '../src/lib/obd/pids';
 import {
   applyOdometerSample,
   applySpeedSample,
@@ -7,6 +8,8 @@ import {
   DT_MAX_SECONDS,
   MAX_BLEED_FRACTION,
   ODOMETER_UNIT_METERS,
+  QUANTIZATION_BASELINE_STEPS,
+  calibrationMinMeters,
   SPEED_QUANTIZATION_BIAS_KMH,
   type ReckoningState,
 } from '../src/lib/obd/reckoning';
@@ -125,12 +128,15 @@ function drive(
 {
   let state = drive(createReckoningState(), () => 100, 200, 250);
   state = applyOdometerSample(state, 0);
+  // D-116: the origin is the first increment, not the first reading, so the counter has
+  // to tick once before anything is measured from it.
+  state = applyOdometerSample(state, 1);
   // Long enough that the 2 km calibration gate actually opens: at 100 km/h this leg
-  // integrates about 2.8 km, measured from the origin the first reading pinned.
+  // integrates about 2.8 km, measured from the origin that increment pinned.
   state = drive(state, () => 100, 400, 250, 50_000);
   const rawSinceStart = state.rawIntegratedMeters - state.rawAtOdoStart;
   // Claim 40% more distance than was integrated over that same stretch.
-  const inflated = Math.round((rawSinceStart * 1.4) / ODOMETER_UNIT_METERS);
+  const inflated = 1 + Math.round((rawSinceStart * 1.4) / ODOMETER_UNIT_METERS);
   state = applyOdometerSample(state, inflated);
 
   check(
@@ -238,6 +244,63 @@ function drive(
   check('NaN odometer is ignored', applyOdometerSample(base, NaN).odoPrevRaw === base.odoPrevRaw);
   const backwards = applySpeedSample(base, 50, base.prevSampleMs! - 1000);
   check('a backwards clock re-baselines instead of integrating', backwards.distanceMeters === base.distanceMeters);
+}
+
+
+
+/* ---------------- AC-843: the baseline scales with the counter's resolution ---------------- */
+
+{
+  check('AC-843 the 100 m odometer keeps the 2 km baseline',
+    calibrationMinMeters(ODOMETER_UNIT_METERS) === 2000,
+    `${calibrationMinMeters(ODOMETER_UNIT_METERS)} m`);
+  check('AC-843 the 1 km counter demands twenty of its own steps',
+    calibrationMinMeters(DISTANCE_UNIT_METERS) === QUANTIZATION_BASELINE_STEPS * 1000,
+    `${calibrationMinMeters(DISTANCE_UNIT_METERS)} m`);
+
+  /*
+    The failure this closes, measured on a real car with no odometer: at 1 km per count a
+    flat 2 km baseline makes a single count 50% of the measurement, and the resulting
+    factor is noise that then persists to every later drive.
+  */
+  let state = drive(createReckoningState(), () => 100, 400, 250);
+  state = applyOdometerSample(state, 100, DISTANCE_UNIT_METERS);
+  state = applyOdometerSample(state, 101, DISTANCE_UNIT_METERS);
+  state = drive(state, () => 100, 400, 250, 200_000);
+  state = applyOdometerSample(state, 104, DISTANCE_UNIT_METERS);
+  check('AC-843 a 1 km counter does not calibrate off a 2 km stretch',
+    !state.isCalibrated,
+    `${(state.rawIntegratedMeters - state.rawAtOdoStart).toFixed(0)} m integrated`);
+}
+
+/* ---------------- AC-844: the origin is a tick, so the counter carries no fraction ---------------- */
+
+{
+  /*
+    Reproduces the drive that prompted this. The counter was first read while the car was
+    stationary, the integrator then covered about 940 m, and the counter ticked once.
+    Pinning the origin to that first reading turned the tick into a claim of a whole
+    kilometre travelled and produced a 60 m correction out of nothing.
+  */
+  let state = drive(createReckoningState(), () => 0, 4, 250);
+  state = applyOdometerSample(state, 271, DISTANCE_UNIT_METERS);
+  state = drive(state, () => 60, 2000, 250, 10_000);
+  const beforeTick = state.distanceMeters;
+  state = applyOdometerSample(state, 272, DISTANCE_UNIT_METERS);
+
+  check('AC-844 the first tick pins the origin instead of claiming a kilometre',
+    state.odoOriginSet && state.odoTotalMeters === 0, `${state.odoTotalMeters} m`);
+  check('AC-844 so no correction is invented',
+    state.residualMeters === 0, `${state.residualMeters.toFixed(1)} m`);
+  check('AC-844 and the cursor is left where the integrator put it',
+    state.distanceMeters === beforeTick,
+    `${state.distanceMeters.toFixed(1)} vs ${beforeTick.toFixed(1)}`);
+
+  // From the origin on, whole counts are exact: no unknown fraction survives anywhere.
+  state = drive(state, () => 60, 2000, 250, 600_000);
+  state = applyOdometerSample(state, 274, DISTANCE_UNIT_METERS);
+  check('AC-844 counts after the origin are exact multiples of the unit',
+    state.odoTotalMeters === 2 * DISTANCE_UNIT_METERS, `${state.odoTotalMeters} m`);
 }
 
 report('reckoning');

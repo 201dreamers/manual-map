@@ -129,6 +129,57 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
   );
 }
 
+/* ---------------- AC-619: the car is the only thing that moves the cursor ---------------- */
+{
+  // The field symptom this covers: the dial read the right speed while the marker ran
+  // down the route at roughly twice the car's real pace, because the animation loop
+  // integrated `config.speedKmh` over the same seconds `applyObdSpeed` had already
+  // integrated the measured speed across.
+  s().moveCursorTo(0);
+  settleStepAnimation(s);
+  s().play();
+
+  const start = s().telemetry.currentDistanceMeters;
+  // Two seconds of driving, delivered as OBD samples at 4 Hz.
+  let clock = 50_000;
+  for (let i = 0; i < 8; i += 1) {
+    clock += 250;
+    s().applyObdSpeed(SPEED_KMH, clock);
+    // The rAF loop ticks over the same wall time, several frames per sample.
+    for (let frame = 0; frame < 15; frame += 1) s().advance(250 / 15 / 1000);
+  }
+
+  const moved = s().telemetry.currentDistanceMeters - start;
+  // 73 km/h debiased to 73.5 for about 1.75 s of integrated interval: the first sample
+  // only establishes a baseline. Doubling would land near 71 m.
+  const expected = ((SPEED_KMH + 0.5) / 3.6) * 1.75;
+  check(
+    'AC-619 a connected adapter advances the cursor once, not twice',
+    Math.abs(moved - expected) < 0.5,
+    `${moved.toFixed(2)} m, expected about ${expected.toFixed(2)} m`,
+  );
+  s().pause();
+}
+
+{
+  // The same loop must still drive the cursor with no adapter attached.
+  await s().disconnectObd();
+  s().moveCursorTo(0);
+  settleStepAnimation(s);
+  s().setSpeed(SPEED_KMH);
+  s().play();
+  const start = s().telemetry.currentDistanceMeters;
+  for (let frame = 0; frame < 60; frame += 1) s().advance(1 / 60);
+  check(
+    'AC-619 and simulated playback is untouched',
+    Math.abs(s().telemetry.currentDistanceMeters - start - SPEED_KMH / 3.6) < 0.5,
+    `${(s().telemetry.currentDistanceMeters - start).toFixed(2)} m`,
+  );
+  s().pause();
+  setObdTransportFactory(() => createFakeObdTransport(respondWith('bitmap')));
+  await s().connectObd();
+}
+
 /* ---------------- AC-614: route end clamps ---------------- */
 {
   // The real geometry is measured from the coordinates, so it is not exactly the
@@ -171,12 +222,13 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
   };
 
   feed(300);
-  s().applyObdOdometer(0); // origin
+  s().applyObdOdometer(0); // first reading, which is not yet an origin
+  s().applyObdOdometer(1); // first increment: D-116 pins the origin here
   check('calibration is not claimed before the odometer moves', !s().obd.isCalibrated);
 
   feed(300);
-  // 22 counts of 0.1 km is 2200 m against roughly 2094 m integrated: about 1.05.
-  s().applyObdOdometer(22);
+  // 22 counts of 0.1 km past the origin is 2200 m against roughly 2094 m integrated.
+  s().applyObdOdometer(23);
 
   check('k is derived from the odometer', s().obd.isCalibrated);
   check('k lands near the real scale error', s().obd.calibration > 1.03 && s().obd.calibration < 1.07, s().obd.calibration.toFixed(4));
@@ -323,6 +375,9 @@ const renderMenu = (overrides: Record<string, unknown> = {}) => {
   });
   setObdTransportFactory(() => transport);
   await s().connectObd();
+  // The connect-time diagnostic sweep asks for both counters by design, so it has to
+  // finish before the poll cycle can be observed in isolation.
+  await s().obdProbesSettled();
   const beforeCount = transport.sent.length;
   for (let tick = 0; tick < 10; tick += 1) await s().pollObdOnce();
   const polled = transport.sent.slice(beforeCount);

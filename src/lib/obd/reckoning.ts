@@ -31,12 +31,36 @@ export const SPEED_QUANTIZATION_BIAS_KMH = 0.5;
 export const DT_MAX_SECONDS = 3;
 
 /**
- * Distance that must be integrated before the calibration factor is trusted. The
- * odometer quantizes to 100 m, so a shorter baseline makes quantization a large fraction
- * of the measurement: at 500 m it is 20% and the estimate is noise. At 2 km it is 5%,
- * and it keeps shrinking because the estimate is cumulative rather than windowed.
+ * Distance that must be integrated before the calibration factor is trusted, for a
+ * counter quantized to 100 m. At 500 m the quantization step is 20% of the measurement
+ * and the estimate is noise; at 2 km it is 5%, and it keeps shrinking because the
+ * estimate is cumulative rather than windowed.
+ *
+ * Also the window length the GPS anchor uses, where there is no quantization at all and
+ * the figure is simply a long-enough stretch.
  */
 export const CALIBRATION_MIN_METERS = 2000;
+
+/**
+ * How many counter steps the baseline must span, so quantization stays at 5% of the
+ * measurement whatever the counter's resolution.
+ *
+ * Measured on a real car, which turned out to have no odometer and fall back to 0131 at
+ * 1 km per count: against the flat 2 km baseline above, one count is 50% of the
+ * measurement, and a calibration derived from that is noise that then persists to every
+ * later drive. The baseline has to scale with the unit, not be a constant that happens
+ * to suit the finer of the two counters.
+ */
+export const QUANTIZATION_BASELINE_STEPS = 20;
+
+/**
+ * The baseline a given counter needs. 2 km for the 100 m odometer, 20 km for the 1 km
+ * distance counter, which is a long drive - correctly so, because that is genuinely how
+ * far a 1 km counter must run before its ratio means anything.
+ */
+export function calibrationMinMeters(unitMeters: number): number {
+  return Math.max(CALIBRATION_MIN_METERS, QUANTIZATION_BASELINE_STEPS * unitMeters);
+}
 
 /**
  * Bounds on the calibration factor. Wheel-speed sensors are scaled to a nominal rolling
@@ -99,8 +123,13 @@ export interface ReckoningState {
   calibrationRejected: boolean;
   /** Metres of correction still waiting to be eased in. Signed. */
   residualMeters: number;
-  /** Previous raw odometer reading, in the PID's own 0.1 km units. */
+  /** Previous raw odometer reading, in the PID's own units. */
   odoPrevRaw: number | null;
+  /**
+   * True once a counter *increment* has been seen, which is where the origin is pinned.
+   * Distinct from `odoPrevRaw !== null`, which only means a reading has arrived.
+   */
+  odoOriginSet: boolean;
   /** Odometer distance accumulated since the first reading, in metres. */
   odoTotalMeters: number;
   /** `distanceMeters` when the odometer first reported, so the two share an origin. */
@@ -128,6 +157,7 @@ export function createReckoningState(): ReckoningState {
     calibrationRejected: false,
     residualMeters: 0,
     odoPrevRaw: null,
+    odoOriginSet: false,
     odoTotalMeters: 0,
     distanceAtOdoStart: 0,
     rawAtOdoStart: 0,
@@ -230,20 +260,38 @@ export function applyOdometerSample(
 ): ReckoningState {
   if (!Number.isFinite(odoRaw) || odoRaw < 0) return state;
 
-  // The first reading is an origin, not a delta: how far the car had gone before it is
-  // unknowable, so both accumulators are pinned to the current belief instead.
-  if (state.odoPrevRaw === null) {
-    return {
-      ...state,
-      odoPrevRaw: odoRaw,
-      distanceAtOdoStart: state.distanceMeters,
-      rawAtOdoStart: state.rawIntegratedMeters,
-    };
-  }
+  // The first reading is only a reading. It cannot be an origin, because the counter is
+  // already part-way through its current count and by how much is unknowable.
+  if (state.odoPrevRaw === null) return { ...state, odoPrevRaw: odoRaw };
 
   // A reading that went backwards is a rollover or a bad decode. Never trust it: the
   // alternative is a negative correction that drags the cursor back down the route.
   if (odoRaw <= state.odoPrevRaw) return state;
+
+  /*
+    The first *increment* is the origin, and this is what makes the counter exact.
+
+    Pinning the origin to the first reading looked equivalent and is not. Say the counter
+    sits a fraction f of a count past its last tick when reckoning starts. It ticks after
+    (1 - f) counts, so treating that tick as one whole count of travel overstates the
+    distance by f counts - a constant error, injected once and never washed out, of up to
+    100 m on the odometer and up to a full kilometre on 0131.
+
+    Measured on the real drive that prompted this: the counter ticked when the integrator
+    had covered 940 m, and the anchor duly announced a 60 m correction that had no basis
+    in anything. Timing the origin from a tick instead leaves distances that are exact
+    multiples of the unit with no unknown fraction anywhere in them.
+  */
+  if (!state.odoOriginSet) {
+    return {
+      ...state,
+      odoPrevRaw: odoRaw,
+      odoOriginSet: true,
+      odoTotalMeters: 0,
+      distanceAtOdoStart: state.distanceMeters,
+      rawAtOdoStart: state.rawIntegratedMeters,
+    };
+  }
 
   const odoTotalMeters = state.odoTotalMeters + (odoRaw - state.odoPrevRaw) * unitMeters;
   const rawSinceStart = state.rawIntegratedMeters - state.rawAtOdoStart;
@@ -252,7 +300,7 @@ export function applyOdometerSample(
   let isCalibrated = state.isCalibrated;
   let calibrationRejected = state.calibrationRejected;
 
-  if (rawSinceStart >= CALIBRATION_MIN_METERS) {
+  if (rawSinceStart >= calibrationMinMeters(unitMeters)) {
     const observed = odoTotalMeters / rawSinceStart;
     const clamped = Math.min(Math.max(observed, CALIBRATION_MIN), CALIBRATION_MAX);
     if (clamped !== observed) calibrationRejected = true;

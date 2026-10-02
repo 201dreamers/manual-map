@@ -462,15 +462,21 @@ const counterAdapter = (opts: { odometer: boolean; distance: boolean }) => (comm
     await import('../src/lib/obd/reckoning');
   const { DISTANCE_UNIT_METERS } = await import('../src/lib/obd/pids');
 
+  // The first reading is discarded and the first increment is the origin (D-116), so
+  // counting starts at the second increment.
   let state = createReckoningState();
   state = applyOdometerSample(state, 100, DISTANCE_UNIT_METERS);
-  state = applyOdometerSample(state, 102, DISTANCE_UNIT_METERS);
+  state = applyOdometerSample(state, 101, DISTANCE_UNIT_METERS);
+  check('AC-836 the first increment is an origin and not yet a distance',
+    state.odoTotalMeters === 0 && state.odoOriginSet, `${state.odoTotalMeters} m`);
+  state = applyOdometerSample(state, 103, DISTANCE_UNIT_METERS);
   check('AC-836 two counts of 0131 are two kilometres',
     Math.abs(state.odoTotalMeters - 2000) < 1e-6, `${state.odoTotalMeters} m`);
 
   let odo = createReckoningState();
   odo = applyOdometerSample(odo, 100);
-  odo = applyOdometerSample(odo, 102);
+  odo = applyOdometerSample(odo, 101);
+  odo = applyOdometerSample(odo, 103);
   check('AC-836 while two counts of 01A6 are 200 metres',
     Math.abs(odo.odoTotalMeters - 200) < 1e-6, `${odo.odoTotalMeters} m`);
 
